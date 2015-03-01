@@ -1,0 +1,8 @@
+## Interface: 60000
+## Title : LazyCommander
+## Notes: For the truely lazy commander, adding some quality of life changes for your garrison
+## Author: Kanro
+## Version: 0.1
+## SavedVariables: LazyCommander
+## SavedVariablesPerCharacter: LazyCommander_Char
+LazyCommander.lua
