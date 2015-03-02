@@ -8,7 +8,8 @@ local Events = {
 	"SHOW_LOOT_TOAST",
 	"GARRISON_SHIPMENT_RECEIVED",
 	"GARRISON_MISSION_LIST_UPDATE",
-	"GARRISON_MISSION_NPC_OPENED",
+	"GARRISON_BUILDING_PLACED",
+	"GARRISON_BUILDING_REMOVED",
 	"PLAYER_ENTERED_WORLD",
 	"ZONE_CHANGED_NEW_AREA",
 	"SHIPMENT_CRAFTER_INFO",
@@ -113,9 +114,8 @@ local function GetWOIndicator(Capacity, Ready, Completed)
 	end
 end
 --------------------------
-local function GetWOCount(buildingID)
-	local WO = {}
-	local _,_,WOCapacity, WOComplete, WOTotal = C_Garrison.GetLandingPageShipmentInfo(buildingID)
+local function GetWOCount(BuildingID)
+	local _,_,WOCapacity, WOComplete, WOTotal = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
 	if WOComplete == nil then
 		WOComplete = 0
 	end
@@ -123,6 +123,15 @@ local function GetWOCount(buildingID)
 		WOTotal = 0
 	end
 	return WOCapacity, WOComplete, WOTotal
+end
+--------------------------
+local function HasWO(BuildingID)
+	local _,_,WorkOrder = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
+	if WorkOrder ~= 0 and WorkOrder ~= nil then
+		return true
+	else
+		return false
+	end
 end
 --------------------------
 local function UpdateIndicatorTexture(self, Indicator)
@@ -185,40 +194,55 @@ local function UpdateMission()
 	UpdateString(Frames["Completed"], GetString(Completed, Total))
 end
 --------------------------
-local PreviousGroup = false
-local function CreateGroup(self, Group)
-	if not PreviousGroup then
+local PreviousDataID = false
+local function CreateSubFrame(self, Data)
+	if not PreviousDataID then
 		self:SetPoint("TOPRIGHT", "LazyCommander_Frame", "TOPRIGHT");
 	else
-		self:SetPoint("TOPRIGHT", "LazyCommander_"..PreviousGroup, "BOTTOMRIGHT",0,0);
+		self:SetPoint("TOPRIGHT", "LazyCommander_"..PreviousDataID, "BOTTOMRIGHT",0,0);
 	end
-	PreviousGroup = Group.ID
-
+	PreviousDataID = Data.ID
+	print(PreviousDataID)
 	self:SetHeight(30)
 	self:SetWidth(80)
 
 	self.Icon = self:CreateTexture(nil,"BACKGROUND")
-	self.Icon:SetTexture(Group.Texture)
+	self.Icon:SetTexture(Data.Texture)
 	self.Icon:SetPoint("TOPLEFT")
 	self.Icon:SetHeight(30)
 	self.Icon:SetWidth(30)
 
 	self.String = self:CreateFontString(nil, "BACKGROUND", "GameFontHighlight");
 	self.String:SetPoint("TOPLEFT", self.Icon, 35, -7)
-	self.String:SetText(Group.Text)
+	self.String:SetText(Data.Text)
 
 	self.Indicator = self:CreateTexture(nil,"BACKGROUND")
 	self.Indicator:SetPoint("TOPRIGHT", self.String, 20, 4)
 	self.Indicator:SetHeight(20)
 	self.Indicator:SetWidth(20)
-	UpdateIndicatorTexture(self, Group.Indicator)
+	UpdateIndicatorTexture(self, Data.Indicator)
 
 end
 --------------------------
-local function GetGroups()
+local function CreateWOData(BuildingID)
+	local WOCapacity, WOReady, WOTotal = GetWOCount(BuildingID)
+	_,_,_,Texture = C_Garrison.GetBuildingInfo(BuildingID)
+
+	local Data = {
+		ID = BuildingID,
+		Text = GetString(WOReady, WOTotal),
+		Indicator = GetWOIndicator(WOCapacity, WOReady, WOTotal),
+		Texture = Texture,
+	}
+
+	return Data
+end
+
+--------------------------
+local function CreateAllData()
 	local CacheCount = GetCacheCount()
 	local MissionCompleted, MissionTotal = GetMissionCount()
-	local Groups = {
+	local Information = {
 		[1] = {
 			ID = "Cache",
 			Text = GetString(CacheCount, 500),
@@ -235,29 +259,32 @@ local function GetGroups()
 
 	local Buildings = C_Garrison.GetBuildings()
 	for _, Building in next, Buildings do
-		local WOCapacity, WOReady, WOTotal = GetWOCount(Building.buildingID)
-		if WOCapacity ~= 0 and WOCapacity ~= nil then
-			_,_,_,Texture = C_Garrison.GetBuildingInfo(Building.buildingID)
-
-			local Group = {
-				ID = Building.buildingID,
-				Text = GetString(WOReady, WOTotal),
-				Indicator = GetWOIndicator(WOCapacity, WOReady, WOTotal),
-				Texture = Texture,
-			}
-			table.insert(Groups, Group)
+		if HasWO(Building.buildingID) then
+			table.insert(Information, CreateWOData(Building.buildingID))
 		end
 	end
 
-	LCFrame:SetWidth(#Groups * 30)
+	LCFrame:SetWidth(#Information * 30)
 
-	for _, Group in next, Groups do
-		local frame = CreateFrame("Frame", "LazyCommander_"..Group.ID, LCFrame)
-		Frames[Group.ID] = frame
-		CreateGroup(frame, Group)
+	for _, Data in next, Information do
+		local frame = CreateFrame("Frame", "LazyCommander_"..Data.ID, LCFrame)
+		Frames[Data.ID] = frame
+		CreateSubFrame(frame, Data)
 	end
 end
-
+--------------------------
+local function ShowOrHideSubFrame(self, Show)
+	if self:IsShown() ~= Show then
+		if Show then
+			self:Show()
+			self:SetHeight(30)
+		else
+			self:Hide()
+			self:SetHeight(1)
+		end
+	end
+end
+--------------------------
 local function ShowOrHideLCFrame()
 	self = LCFrame
 	if not LazyCommander.Hidden then
@@ -299,7 +326,7 @@ local function CreateLCFrame(self)
 		self:RegisterEvent(event)
 	end
 
-	GetGroups()
+	CreateAllData()
 
 	self:SetHeight(120)
 	self:SetWidth(120)
@@ -316,6 +343,14 @@ local function CreateLCFrame(self)
 	end)
 end
 --------------------------
+function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
+	if lootSource == 10 then
+		LazyCommander_Char.LastVisitedCache = GetRealmTime()
+		UpdateCache()
+	else
+	end
+end
+--------------------------
 local firedCount = 0
 function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
 	firedCount = firedCount + 1
@@ -327,17 +362,7 @@ function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
 		end
 	end)
 end
---------------------------
-function LCFrame:PLAYER_LOGIN()
-	C_Timer.After(1, function()
-		if not C_Garrison.GetGarrisonInfo() then
-			return
-		end
 
-		CreateLCFrame(self)
-		ShowOrHideLCFrame()
-	end)
-end
 --------------------------
 function LCFrame:BAG_UPDATE_DELAYED()
 	UpdateAllWO()
@@ -347,12 +372,8 @@ function LCFrame:GARRISON_SHIPMENT_RECEIVED()
 	UpdateAllWO()
 end
 --------------------------
-function LCFrame:GARRISON_MISSION_LIST_UPDATE()
-	UpdateMission()
-end
---------------------------
-function LCFrame:GARRISON_MISSION_NPC_OPENED()
-	UpdateMission()
+function LCFrame:SHIPMENT_CRAFTER_CLOSED()
+	UpdateAllWO()
 end
 --------------------------
 local SpamControl = 0
@@ -363,8 +384,8 @@ function LCFrame:SHIPMENT_CRAFTER_INFO()
 	end
 end
 --------------------------
-function LCFrame:SHIPMENT_CRAFTER_CLOSED()
-	UpdateAllWO()
+function LCFrame:GARRISON_MISSION_LIST_UPDATE()
+	UpdateMission()
 end
 --------------------------
 function LCFrame:PLAYER_ENTERED_WORLD()
@@ -375,12 +396,83 @@ function LCFrame:ZONE_CHANGED_NEW_AREA()
 	ShowOrHideLCFrame()
 end
 --------------------------
-function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
-	if lootSource == 10 then
-		LazyCommander_Char.LastVisitedCache = GetRealmTime()
-		UpdateCache()
-	else
+function LCFrame:PLAYER_LOGIN()
+	C_Timer.After(1, function()
+		if not C_Garrison.GetGarrisonInfo() then return end
+
+		CreateLCFrame(self)
+		ShowOrHideLCFrame()
+	end)
+end
+--------------------------
+function LCFrame:GARRISON_BUILDING_REMOVED(arg1,arg2)
+
+end
+--------------------------
+function LCFrame:GARRISON_BUILDING_ACTIVATED(plotid, buildingID)
+
+end
+--------------------------
+function LCFrame:GARRISON_BUILDING_PLACED()
+	print("---------------------")
+	local Buildings = C_Garrison.GetBuildings()
+
+	for FrameID, Frame in next, Frames do
+		if FrameID ~= "Completed" and FrameID ~= "Cache" then
+			local Active = false
+			for _, Building in next, Buildings do
+				if FrameID == Building.buildingID then
+					Active = true
+				end
+			end
+			ShowOrHideSubFrame(Frame, Active)
+		end
 	end
+	print("---------------------")
+
+	for _, Building in next, Buildings do
+		if HasWO(Building.buildingID) then
+			if not Frames[Building.buildingID] then
+				local Data = CreateWOData(Building.buildingID)
+				local frame = CreateFrame("Frame", "LazyCommander_"..Data.ID, LCFrame)
+				Frames[Data.ID] = frame
+				CreateSubFrame(frame, Data)
+			end
+		end
+	end
+
+	-- for _, Building in next, Buildings do
+	-- 	local WOCapacity, WOReady, WOTotal = GetWOCount(Building.buildingID)
+	-- 	if WorkOrder ~= 0 and WorkOrder ~= nil then
+	-- 		if not Frames[Building.buildingID] then
+	-- 			print("Creating new frame")
+	-- 			local Data = {
+	-- 				ID = Building.buildingID,
+	-- 				Text = GetString(WOReady, WOTotal),
+	-- 				Indicator = GetWOIndicator(WOCapacity, WOReady, WOTotal),
+	-- 				Texture = Texture,
+	-- 			}
+
+	-- 			local frame = CreateFrame("Frame", "LazyCommander_"..Building.buildingID, LCFrame)
+	-- 			Frames[Building.buildingID] = frame
+	-- 			CreateSubFrame(frame, Data)
+	-- 		end
+	-- 	end
+	-- end
+
+	-- for FrameID, Frame in next, Frames do
+	-- 	if FrameID == "Completed" or FrameID == "Cache" then return end
+
+	-- 	local Shown = false
+	-- 	for _, Building in next, Buildings do
+	-- 		if Building.buildingID == FrameID then
+	-- 			Shown = true
+	-- 		end
+	-- 	end
+	-- 	ShowOrHideSubFrame(Frame, Shown)
+	-- end
+
+	print("---------------------")
 end
 --------------------------
 SLASH_LAZYCOMMANDER1 = "/lazycommander"
