@@ -12,6 +12,7 @@ local Events = {
 	"PLAYER_ENTERED_WORLD",
 	"ZONE_CHANGED_NEW_AREA",
 	"SHIPMENT_CRAFTER_INFO",
+	"SHIPMENT_CRAFTER_CLOSEDSHIPMENT_CRAFTER_CLOSED",
 	"GARRISON_LANDINGPAGE_SHIPMENTS",
 }
 
@@ -129,8 +130,9 @@ local function UpdateIndicatorTexture(self, Indicator)
 		if not self.Indicator:IsShown() then
 			self.Indicator:Show()
 		end
-		local currentTexture = self.Indicator:GetTexture()
-		if currentTexture == nil or currentTexture ~= Indicator then
+
+		local CurrentTexture = self.Indicator:GetTexture()
+		if CurrentTexture == nil or CurrentTexture ~= Indicator then
 			self.Indicator:SetTexture(Indicator)
 		end
 
@@ -158,7 +160,6 @@ end
 --------------------------
 local function UpdateCache()
 	local CacheCount = GetCacheCount()
-	print(CacheCount)
 	local Indicator = GetCacheIndicator(CacheCount)
 	UpdateIndicatorTexture(Frames["Cache"], Indicator)
 	UpdateString(Frames["Cache"], GetString(CacheCount, 500))
@@ -261,6 +262,9 @@ local function ShowOrHideLCFrame()
 	self = LCFrame
 	if not LazyCommander.Hidden then
 		local RevertID = GetCurrentMapAreaID()
+		local RevertScale = WorldMapDetailFrame:GetScale()
+		local RevertHorizontal = WorldMapScrollFrame:GetHorizontalScroll()
+		local RevertVertical = WorldMapScrollFrame:GetVerticalScroll()
 		SetMapToCurrentZone()
 		local InstanceID = GetCurrentMapAreaID()
 
@@ -275,7 +279,9 @@ local function ShowOrHideLCFrame()
 				self:Hide()
 			end
 		end
-
+		WorldMapDetailFrame:SetScale(RevertScale)
+		WorldMapScrollFrame:SetHorizontalScroll(RevertHorizontal)
+		WorldMapScrollFrame:SetVerticalScroll(RevertVertical)
 		SetMapByID(RevertID)
 	else
 		self:Hide()
@@ -355,6 +361,10 @@ function LCFrame:SHIPMENT_CRAFTER_INFO()
 		SpamControl = GetTime()
 		UpdateAllWO()
 	end
+end
+--------------------------
+function LCFrame:SHIPMENT_CRAFTER_CLOSED()
+	UpdateAllWO()
 end
 --------------------------
 function LCFrame:PLAYER_ENTERED_WORLD()
