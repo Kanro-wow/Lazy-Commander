@@ -27,10 +27,11 @@ LCFrame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- Defaulting Char Vars
-if not LazyCommander_Char then
-	LazyCommander_Char = {
+if not LazyCommander_C then
+	LazyCommander_C = {
 		LastVisitedCache = 0,
-		Hidden = false
+		Hidden = false,
+		Filter = {}
 	}
 end
 
@@ -73,10 +74,10 @@ local function GetCacheIndicator(CacheCount)
 end
 --------------------------
 local function GetCacheCount()
-	if LazyCommander_Char.LastVisitedCache == 0 then
+	if LazyCommander_C.LastVisitedCache == 0 then
 		return false
 	end
-	local CacheCount = math.floor((GetRealmTime() - LazyCommander_Char.LastVisitedCache)/600)
+	local CacheCount = math.floor((GetRealmTime() - LazyCommander_C.LastVisitedCache)/600)
 	if CacheCount > 500 then
 		CacheCount = 500
 	end
@@ -194,6 +195,18 @@ local function UpdateMission()
 	UpdateString(Frames["Completed"], GetString(Completed, Total))
 end
 --------------------------
+local function ShowOrHideSubFrame(self, Show)
+	if self:IsShown() ~= Show then
+		if Show then
+			self:Show()
+			self:SetHeight(30)
+		else
+			self:Hide()
+			self:SetHeight(1)
+		end
+	end
+end
+--------------------------
 local PreviousDataID = false
 local function CreateSubFrame(self, Data)
 	if not PreviousDataID then
@@ -202,7 +215,6 @@ local function CreateSubFrame(self, Data)
 		self:SetPoint("TOPRIGHT", "LazyCommander_"..PreviousDataID, "BOTTOMRIGHT",0,0);
 	end
 	PreviousDataID = Data.ID
-	print(PreviousDataID)
 	self:SetHeight(30)
 	self:SetWidth(80)
 
@@ -221,6 +233,7 @@ local function CreateSubFrame(self, Data)
 	self.Indicator:SetHeight(20)
 	self.Indicator:SetWidth(20)
 	UpdateIndicatorTexture(self, Data.Indicator)
+	ShowOrHideSubFrame(self, not LazyCommander_C.Filter[Data.ID])
 
 end
 --------------------------
@@ -237,7 +250,6 @@ local function CreateWOData(BuildingID)
 
 	return Data
 end
-
 --------------------------
 local function CreateAllData()
 	local CacheCount = GetCacheCount()
@@ -273,18 +285,6 @@ local function CreateAllData()
 	end
 end
 --------------------------
-local function ShowOrHideSubFrame(self, Show)
-	if self:IsShown() ~= Show then
-		if Show then
-			self:Show()
-			self:SetHeight(30)
-		else
-			self:Hide()
-			self:SetHeight(1)
-		end
-	end
-end
---------------------------
 local function ShowOrHideLCFrame()
 	self = LCFrame
 	if not LazyCommander.Hidden then
@@ -314,12 +314,12 @@ local function ShowOrHideLCFrame()
 		self:Hide()
 	end
 end
-
+--------------------------
 local function LockLCFrame()
 	LCFrame:EnableMouse(LazyCommander.Unlocked)
 	LCFrame:SetMovable(LazyCommander.Unlocked)
 end
-
+--------------------------
 -- Create main frame, register events and show information
 local function CreateLCFrame(self)
 	for _,event in next, Events do
@@ -343,24 +343,35 @@ local function CreateLCFrame(self)
 	end)
 end
 --------------------------
+local function BlacklistBuilding(BuildingName)
+	local Buildings = C_Garrison.GetBuildings()
+	for _, Building in next, Buildings do
+		local BuildingID,BuildingNameCheck = C_Garrison.GetBuildingInfo(Building.buildingID)
+		if string.lower(BuildingNameCheck) == BuildingName then
+			LazyCommander_C.Filter[BuildingID] = not LazyCommander_C.Filter[BuildingID]
+			ShowOrHideSubFrame(Frames[BuildingID], not LazyCommander_C.Filter[BuildingID])
+			return true
+		end
+	end
+
+	return false
+end
+--------------------------
 function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
 	if lootSource == 10 then
-		LazyCommander_Char.LastVisitedCache = GetRealmTime()
+		LazyCommander_C.LastVisitedCache = GetRealmTime()
 		UpdateCache()
 	else
 	end
 end
 --------------------------
-local firedCount = 0
 function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
-	firedCount = firedCount + 1
-	print(firedCount)
-	C_Timer.After(0.2, function()
-		local Buildings = C_Garrison.GetBuildings()
-		for _, Building in next, Buildings do
-			UpdateWO(Building.buildingID)
-		end
-	end)
+	-- C_Timer.After(0.2, function()
+	local Buildings = C_Garrison.GetBuildings()
+	for _, Building in next, Buildings do
+		UpdateWO(Building.buildingID)
+	end
+	-- end)
 end
 
 --------------------------
@@ -475,28 +486,65 @@ function LCFrame:GARRISON_BUILDING_PLACED()
 	print("---------------------")
 end
 --------------------------
+local function GetBuildingsString()
+	local BuildingNames = {}
+	for _, Building in next, C_Garrison.GetBuildings() do
+		if HasWO(Building.buildingID) then
+			local _,BuildingName = C_Garrison.GetBuildingInfo(Building.buildingID)
+			table.insert(BuildingNames, BuildingName)
+		end
+	end
+
+	table.sort(BuildingNames)
+	return table.concat(BuildingNames,", ")
+end
+--------------------------
 SLASH_LAZYCOMMANDER1 = "/lazycommander"
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
-	if msg == "lock" then
+	msg = string.lower(msg)
+	local Pos = string.find(msg,"%s+")
+	local Command = strtrim(string.sub(msg,1,Pos)," ")
+	local SubCommand
+	if Pos > 0 then
+		SubCommand = strtrim(string.sub(msg,Pos+1,string.len(msg))," ")
+	else
+		SubCommand = nil
+	end
+
+	if Command == "lock" then
 		LazyCommander.Unlocked = not LazyCommander.Unlocked
 		LockLCFrame()
 		if LazyCommander.Unlocked == true then
-			print("LazyCommander is now unlocked. Drag the frame to your liking.")
+			print("LazyCommander is now unlocked. Drag the window to your liking.")
 		else
-			print("LazyCommander is now locked. Drag the frame to your liking.")
+			print("LazyCommander is now locked. Drag the window to your liking.")
 		end
-	elseif msg == "hide" then
+	elseif Command == "hide" then
 		LazyCommander.Hidden = not LazyCommander.Hidden
 		ShowOrHideLCFrame()
 		if LazyCommander.Hidden == true then
-			print("LazyCommander is now hidden. The frame will not appear until you show it again. Type /lazycommander show to make it reappear.")
+			print("LazyCommander is now hidden. The window will not appear until you show it again. Type /lazycommander show to make it reappear.")
 		else
-			print("LazyCommander is now shown. The frame will appear whenever you are in your garrison.")
+			print("LazyCommander is now shown. The window will appear whenever you are in your garrison.")
+		end
+	elseif Command == "filter" then
+		if not SubCommand then
+			print([[Blacklisting is done by typing "/LazyCommander Filter Herb Garden"]])
+			print("Current Buildings:",GetBuildingsString())
+			print("Filtered Buildings:",GetFilteredString())
+		elseif SubCommand then
+			if BlacklistBuilding(SubCommand) then
+				print("Done:", SubCommand)
+			else
+				print("Error:",SubCommand,"is not a known building.")
+				print("Current Buildings:",GetBuildingsString())
+			end
 		end
 	else
 		print("--LazyCommander Commands--")
-		print("/lazycommander lock - Locks or Unlocks the frame in place")
-		print("/lazycommander hide - Shows or Hides the frame when in garrison")
+		print("/lazycommander lock - Locks or Unlocks the window in place")
+		print("/lazycommander hide - Shows or Hides the window when in garrison")
+		print("/lazycommander filter - Filter out a building")
 	end
 
 	-- local Transforms = GetWorldMapTransforms()

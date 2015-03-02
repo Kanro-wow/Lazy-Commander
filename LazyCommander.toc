@@ -4,5 +4,5 @@
 ## Author: Kanro
 ## Version: 0.1
 ## SavedVariables: LazyCommander
-## SavedVariablesPerCharacter: LazyCommander_Char
+## SavedVariablesPerCharacter: LazyCommander_C
 LazyCommander.lua
