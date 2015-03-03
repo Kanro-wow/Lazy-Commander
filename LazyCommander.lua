@@ -425,7 +425,6 @@ function LCFrame:GARRISON_BUILDING_ACTIVATED(plotid, buildingID)
 end
 --------------------------
 function LCFrame:GARRISON_BUILDING_PLACED()
-	print("---------------------")
 	local Buildings = C_Garrison.GetBuildings()
 
 	for FrameID, Frame in next, Frames do
@@ -439,7 +438,6 @@ function LCFrame:GARRISON_BUILDING_PLACED()
 			ShowOrHideSubFrame(Frame, Active)
 		end
 	end
-	print("---------------------")
 
 	for _, Building in next, Buildings do
 		if HasWO(Building.buildingID) then
@@ -503,11 +501,13 @@ SLASH_LAZYCOMMANDER1 = "/lazycommander"
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 	msg = string.lower(msg)
 	local Pos = string.find(msg,"%s+")
-	local Command = strtrim(string.sub(msg,1,Pos)," ")
+	local Command
 	local SubCommand
-	if Pos > 0 then
+	if Pos ~= nil then
 		SubCommand = strtrim(string.sub(msg,Pos+1,string.len(msg))," ")
+		Command = strtrim(string.sub(msg,1,Pos)," ")
 	else
+		Command = msg
 		SubCommand = nil
 	end
 
@@ -531,7 +531,6 @@ SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 		if not SubCommand then
 			print([[Blacklisting is done by typing "/LazyCommander Filter Herb Garden"]])
 			print("Current Buildings:",GetBuildingsString())
-			print("Filtered Buildings:",GetFilteredString())
 		elseif SubCommand then
 			if BlacklistBuilding(SubCommand) then
 				print("Done:", SubCommand)
