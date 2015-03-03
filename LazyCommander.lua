@@ -2,7 +2,7 @@ local LCFrame = CreateFrame("Frame", "LazyCommander_Frame", UIParent)
 local CheckMarkTexture = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local CrossTexture = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local Frames = {}
-LCFrame:RegisterEvent("PLAYER_LOGIN")
+LCFrame:RegisterEvent("GARRISON_LANDINGPAGE_SHIPMENTS")
 
 local Events = {
 	"SHOW_LOOT_TOAST",
@@ -14,7 +14,6 @@ local Events = {
 	"ZONE_CHANGED_NEW_AREA",
 	"SHIPMENT_CRAFTER_INFO",
 	"SHIPMENT_CRAFTER_CLOSEDSHIPMENT_CRAFTER_CLOSED",
-	"GARRISON_LANDINGPAGE_SHIPMENTS",
 }
 
 -- Create overal function for handeling events on LCFrame
@@ -73,22 +72,16 @@ local function GetCacheIndicator(CacheCount)
 	end
 end
 --------------------------
-local Timer = false
 local function GetCacheCount()
 	if LazyCommander_C.LastVisitedCache == 0 then
 		return false
 	end
 
-	local CacheCount = (GetRealmTime() - LazyCommander_C.LastVisitedCache)/600
-
-
-
+	local CacheCount = math.floor((GetRealmTime() - LazyCommander_C.LastVisitedCache)/600)
 	if CacheCount > 500 then
 		CacheCount = 500
 	end
-
-	CacheCount = math.random(0,500)
-	return math.floor(CacheCount)
+	return CacheCount
 end
 --------------------------
 local function GetMissionIndicator(Completed, Total)
@@ -384,13 +377,24 @@ function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
 	end
 end
 --------------------------
+local Init = false
 function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
-	-- C_Timer.After(0.2, function()
-	local Buildings = C_Garrison.GetBuildings()
-	for _, Building in next, Buildings do
-		UpdateWO(Building.buildingID)
+	if Init then
+		local Buildings = C_Garrison.GetBuildings()
+		for _, Building in next, Buildings do
+			UpdateWO(Building.buildingID)
+		end
+	else
+		if not C_Garrison.GetGarrisonInfo() then
+			print("Error: LazyCommander has no Garrison Info. Terminating.")
+			return
+		end
+
+		CreateLCFrame(self)
+		ShowOrHideLCFrame()
+		TickerUpdateCache()
+		Init = true
 	end
-	-- end)
 end
 
 --------------------------
@@ -426,25 +430,6 @@ function LCFrame:ZONE_CHANGED_NEW_AREA()
 	ShowOrHideLCFrame()
 end
 --------------------------
-function LCFrame:PLAYER_LOGIN()
-	C_Timer.After(1, function()
-		if not C_Garrison.GetGarrisonInfo() then return end
-
-		CreateLCFrame(self)
-		ShowOrHideLCFrame()
-		TickerUpdateCache()
-
-	end)
-end
---------------------------
-function LCFrame:GARRISON_BUILDING_REMOVED(arg1,arg2)
-
-end
---------------------------
-function LCFrame:GARRISON_BUILDING_ACTIVATED(plotid, buildingID)
-
-end
---------------------------
 function LCFrame:GARRISON_BUILDING_PLACED()
 	local Buildings = C_Garrison.GetBuildings()
 
@@ -470,39 +455,6 @@ function LCFrame:GARRISON_BUILDING_PLACED()
 			end
 		end
 	end
-
-	-- for _, Building in next, Buildings do
-	-- 	local WOCapacity, WOReady, WOTotal = GetWOCount(Building.buildingID)
-	-- 	if WorkOrder ~= 0 and WorkOrder ~= nil then
-	-- 		if not Frames[Building.buildingID] then
-	-- 			print("Creating new frame")
-	-- 			local Data = {
-	-- 				ID = Building.buildingID,
-	-- 				Text = GetString(WOReady, WOTotal),
-	-- 				Indicator = GetWOIndicator(WOCapacity, WOReady, WOTotal),
-	-- 				Texture = Texture,
-	-- 			}
-
-	-- 			local frame = CreateFrame("Frame", "LazyCommander_"..Building.buildingID, LCFrame)
-	-- 			Frames[Building.buildingID] = frame
-	-- 			CreateSubFrame(frame, Data)
-	-- 		end
-	-- 	end
-	-- end
-
-	-- for FrameID, Frame in next, Frames do
-	-- 	if FrameID == "Completed" or FrameID == "Cache" then return end
-
-	-- 	local Shown = false
-	-- 	for _, Building in next, Buildings do
-	-- 		if Building.buildingID == FrameID then
-	-- 			Shown = true
-	-- 		end
-	-- 	end
-	-- 	ShowOrHideSubFrame(Frame, Shown)
-	-- end
-
-	print("---------------------")
 end
 --------------------------
 local function GetBuildingsString()
