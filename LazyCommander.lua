@@ -73,15 +73,22 @@ local function GetCacheIndicator(CacheCount)
 	end
 end
 --------------------------
+local Timer = false
 local function GetCacheCount()
 	if LazyCommander_C.LastVisitedCache == 0 then
 		return false
 	end
-	local CacheCount = math.floor((GetRealmTime() - LazyCommander_C.LastVisitedCache)/600)
+
+	local CacheCount = (GetRealmTime() - LazyCommander_C.LastVisitedCache)/600
+
+
+
 	if CacheCount > 500 then
 		CacheCount = 500
 	end
-	return CacheCount
+
+	CacheCount = math.random(0,500)
+	return math.floor(CacheCount)
 end
 --------------------------
 local function GetMissionIndicator(Completed, Total)
@@ -173,6 +180,18 @@ local function UpdateCache()
 	local Indicator = GetCacheIndicator(CacheCount)
 	UpdateIndicatorTexture(Frames["Cache"], Indicator)
 	UpdateString(Frames["Cache"], GetString(CacheCount, 500))
+end
+--------------------------
+local function TickerUpdateCache()
+	local CacheCount = (GetRealmTime() - LazyCommander_C.LastVisitedCache)/600
+	print("Realm:",GetRealmTime())
+	print("Visit:",LazyCommander_C.LastVisitedCache)
+	local Offset = CacheCount - math.floor(CacheCount)
+	print("Offset:",Offset)
+	C_Timer.After((Offset*600)+60, function()
+		UpdateCache()
+		local ticker = C_Timer.NewTicker(600, UpdateCache)
+	end)
 end
 --------------------------
 local function UpdateWO(buildingID)
@@ -413,6 +432,8 @@ function LCFrame:PLAYER_LOGIN()
 
 		CreateLCFrame(self)
 		ShowOrHideLCFrame()
+		TickerUpdateCache()
+
 	end)
 end
 --------------------------
