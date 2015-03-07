@@ -7,9 +7,6 @@ local Frames = {}
 local BuildingsData = C_Garrison.GetBuildings()
 LCFrame:RegisterEvent("GARRISON_LANDINGPAGE_SHIPMENTS")
 
-
-
-
 local Events = {
 	"SHOW_LOOT_TOAST",
 	"GARRISON_SHIPMENT_RECEIVED",
@@ -89,11 +86,6 @@ local function GetCacheCount()
 	return CacheCount
 end
 
-local function GetCacheCompletionTime(BuildingID)
-	return LazyCommander_C.LastVisitedCache + 300000
-
-end
-
 local function GetMissionIndicator(Completed, Total)
 	if Total == Completed and Completed > 0 then
 		return CrossTexture
@@ -125,15 +117,7 @@ local function GetWOIndicator(Capacity, Ready, Completed)
 	end
 end
 
-local function GetWOCompletionTime(BuildingID)
-	local _,_,_,WOComplete, WOTotal, CreationTime, Duration = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
-	if WOTotal == nil then return end
-	local CompletionTime = CreationTime + (Duration * (WOTotal - WOComplete))
-	return CompletionTime
-end
-
 local function GetWOCount(BuildingID)
-	-- local name, texture, shipmentCapacity, shipmentsReady, shipmentsTotal, creationTime, duration, timeleftString, itemName, itemIcon, itemQuality, itemID = C_Garrison.GetLandingPageShipmentInfo(buildingID);
 	local _,Texture, WOCapacity, WOComplete, WOTotal = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
 	if WOComplete == nil then
 		WOComplete = 0
@@ -434,6 +418,13 @@ function LCFrame:SHIPMENT_CRAFTER_OPENED()
 			C_Garrison.RequestShipmentCreation(available);
 		end
 	end)
+end
+
+function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
+	if lootSource == 10 then
+		LazyCommander_C.LastVisitedCache = GetRealmTime()
+		UpdateCache()
+  end
 end
 
 local SpamControl = 0
