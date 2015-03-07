@@ -1,22 +1,28 @@
 local LCFrame = CreateFrame("Frame", "LazyCommander_Frame", UIParent)
+local Realm = GetRealmName()
+local Player = UnitName("player")
 local CheckMarkTexture = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local CrossTexture = "Interface\\RaidFrame\\ReadyCheck-NotReady"
 local Frames = {}
+local BuildingsData = C_Garrison.GetBuildings()
 LCFrame:RegisterEvent("GARRISON_LANDINGPAGE_SHIPMENTS")
+
+
+
 
 local Events = {
 	"SHOW_LOOT_TOAST",
 	"GARRISON_SHIPMENT_RECEIVED",
 	"GARRISON_MISSION_LIST_UPDATE",
 	"GARRISON_BUILDING_PLACED",
-	"GARRISON_BUILDING_REMOVED",
+	"GARRISON_MISSION_NPC_CLOSED",
 	"PLAYER_ENTERED_WORLD",
 	"ZONE_CHANGED_NEW_AREA",
 	"SHIPMENT_CRAFTER_INFO",
-	"SHIPMENT_CRAFTER_CLOSEDSHIPMENT_CRAFTER_CLOSED",
+	"SHIPMENT_CRAFTER_OPENED",
+	"SHIPMENT_CRAFTER_CLOSED",
 }
 
--- Create overal function for handeling events on LCFrame
 LCFrame:SetScript("OnEvent", function(self, event, ...)
 	if self[event] then
 		self[event](self,...)
@@ -25,7 +31,6 @@ LCFrame:SetScript("OnEvent", function(self, event, ...)
 	end
 end)
 
--- Defaulting Char Vars
 if not LazyCommander_C then
 	LazyCommander_C = {
 		LastVisitedCache = 0,
@@ -34,7 +39,6 @@ if not LazyCommander_C then
 	}
 end
 
--- Defaulting Overal Vars
 if not LazyCommander then
 	LazyCommander = {
 		x = 200,
@@ -42,7 +46,7 @@ if not LazyCommander then
 		Unlocked = true
 	}
 end
---------------------------
+
 local function GetString(Left,Right)
 	if Left == nil and Right == nil then
 		return nil
@@ -54,14 +58,15 @@ local function GetString(Left,Right)
 		return Left.."/"..Right
 	end
 end
---------------------------
+
 local function GetRealmTime()
 	local t = {}
 	_,t.month,t.day,t.year = CalendarGetDate()
 	t.hour,t.min = GetGameTime()
+	-- Not doing seconds, yet
 	return time(t)
 end
---------------------------
+
 local function GetCacheIndicator(CacheCount)
 	if CacheCount == false then
 		return CrossTexture
@@ -71,7 +76,7 @@ local function GetCacheIndicator(CacheCount)
 		return CrossTexture
 	end
 end
---------------------------
+
 local function GetCacheCount()
 	if LazyCommander_C.LastVisitedCache == 0 then
 		return false
@@ -83,7 +88,12 @@ local function GetCacheCount()
 	end
 	return CacheCount
 end
---------------------------
+
+local function GetCacheCompletionTime(BuildingID)
+	return LazyCommander_C.LastVisitedCache + 300000
+
+end
+
 local function GetMissionIndicator(Completed, Total)
 	if Total == Completed and Completed > 0 then
 		return CrossTexture
@@ -97,14 +107,14 @@ local function GetMissionIndicator(Completed, Total)
 		return CheckMarkTexture
 	end
 end
---------------------------
+
 local function GetMissionCount()
 	local Total = C_Garrison.GetInProgressMissions()
 	local Completed = C_Garrison.GetCompleteMissions()
 
 	return #Completed, #Total
 end
---------------------------
+
 local function GetWOIndicator(Capacity, Ready, Completed)
 	if Ready == 0 and Completed == 0 then
 		return nil
@@ -114,18 +124,26 @@ local function GetWOIndicator(Capacity, Ready, Completed)
 		return CrossTexture
 	end
 end
---------------------------
+
+local function GetWOCompletionTime(BuildingID)
+	local _,_,_,WOComplete, WOTotal, CreationTime, Duration = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
+	if WOTotal == nil then return end
+	local CompletionTime = CreationTime + (Duration * (WOTotal - WOComplete))
+	return CompletionTime
+end
+
 local function GetWOCount(BuildingID)
-	local _,_,WOCapacity, WOComplete, WOTotal = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
+	-- local name, texture, shipmentCapacity, shipmentsReady, shipmentsTotal, creationTime, duration, timeleftString, itemName, itemIcon, itemQuality, itemID = C_Garrison.GetLandingPageShipmentInfo(buildingID);
+	local _,Texture, WOCapacity, WOComplete, WOTotal = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
 	if WOComplete == nil then
 		WOComplete = 0
 	end
 	if WOTotal == nil then
 		WOTotal = 0
 	end
-	return WOCapacity, WOComplete, WOTotal
+	return WOCapacity, WOComplete, WOTotal, Texture
 end
---------------------------
+
 local function HasWO(BuildingID)
 	local _,_,WorkOrder = C_Garrison.GetLandingPageShipmentInfo(BuildingID)
 	if WorkOrder ~= 0 and WorkOrder ~= nil then
@@ -134,7 +152,7 @@ local function HasWO(BuildingID)
 		return false
 	end
 end
---------------------------
+
 local function UpdateIndicatorTexture(self, Indicator)
 	if Indicator ~= nil then
 		if not self.Indicator:IsShown() then
@@ -150,7 +168,7 @@ local function UpdateIndicatorTexture(self, Indicator)
 		self.Indicator:Hide()
 	end
 end
---------------------------
+
 local function UpdateString(self, String)
 	if String == self.String:GetText() then
 		return
@@ -167,26 +185,23 @@ local function UpdateString(self, String)
 		end
 	end
 end
---------------------------
+
 local function UpdateCache()
 	local CacheCount = GetCacheCount()
 	local Indicator = GetCacheIndicator(CacheCount)
 	UpdateIndicatorTexture(Frames["Cache"], Indicator)
 	UpdateString(Frames["Cache"], GetString(CacheCount, 500))
 end
---------------------------
+
 local function TickerUpdateCache()
 	local CacheCount = (GetRealmTime() - LazyCommander_C.LastVisitedCache)/600
-	print("Realm:",GetRealmTime())
-	print("Visit:",LazyCommander_C.LastVisitedCache)
 	local Offset = CacheCount - math.floor(CacheCount)
-	print("Offset:",Offset)
 	C_Timer.After((Offset*600)+60, function()
 		UpdateCache()
 		local ticker = C_Timer.NewTicker(600, UpdateCache)
 	end)
 end
---------------------------
+
 local function UpdateWO(buildingID)
 	if Frames[buildingID] then
 		local WOCapacity, WOComplete, WOTotal = GetWOCount(buildingID)
@@ -195,21 +210,21 @@ local function UpdateWO(buildingID)
 		UpdateString(Frames[buildingID], GetString(WOComplete, WOTotal))
 	end
 end
---------------------------
+
 local function UpdateAllWO()
 	C_Garrison.RequestLandingPageShipmentInfo()
 end
---------------------------
+
 local function UpdateMission()
 	local Completed, Total = GetMissionCount()
 	local Indicator = GetMissionIndicator(Completed, Total)
 	UpdateIndicatorTexture(Frames["Completed"], Indicator)
 	UpdateString(Frames["Completed"], GetString(Completed, Total))
 end
---------------------------
+
 local function ShowOrHideSubFrame(self, Show)
 	if self:IsShown() ~= Show then
-		if Show then
+		if Show and self.Filtered == false then
 			self:Show()
 			self:SetHeight(30)
 		else
@@ -218,7 +233,7 @@ local function ShowOrHideSubFrame(self, Show)
 		end
 	end
 end
---------------------------
+
 local PreviousDataID = false
 local function CreateSubFrame(self, Data)
 	if not PreviousDataID then
@@ -245,13 +260,17 @@ local function CreateSubFrame(self, Data)
 	self.Indicator:SetHeight(20)
 	self.Indicator:SetWidth(20)
 	UpdateIndicatorTexture(self, Data.Indicator)
-	ShowOrHideSubFrame(self, not LazyCommander_C.Filter[Data.ID])
+	if LazyCommander_C.Filter[Data.ID] then
+		ShowOrHideSubFrame(self, false)
+		self.Filtered = true
+	else
+		self.Filtered = false
+	end
 
 end
---------------------------
+
 local function CreateWOData(BuildingID)
-	local WOCapacity, WOReady, WOTotal = GetWOCount(BuildingID)
-	_,_,_,Texture = C_Garrison.GetBuildingInfo(BuildingID)
+	local WOCapacity, WOReady, WOTotal, Texture = GetWOCount(BuildingID)
 
 	local Data = {
 		ID = BuildingID,
@@ -262,7 +281,7 @@ local function CreateWOData(BuildingID)
 
 	return Data
 end
---------------------------
+
 local function CreateAllData()
 	local CacheCount = GetCacheCount()
 	local MissionCompleted, MissionTotal = GetMissionCount()
@@ -281,8 +300,7 @@ local function CreateAllData()
 		},
 	}
 
-	local Buildings = C_Garrison.GetBuildings()
-	for _, Building in next, Buildings do
+	for _, Building in next, BuildingsData do
 		if HasWO(Building.buildingID) then
 			table.insert(Information, CreateWOData(Building.buildingID))
 		end
@@ -296,7 +314,7 @@ local function CreateAllData()
 		CreateSubFrame(frame, Data)
 	end
 end
---------------------------
+
 local function ShowOrHideLCFrame()
 	self = LCFrame
 	if not LazyCommander.Hidden then
@@ -318,20 +336,20 @@ local function ShowOrHideLCFrame()
 				self:Hide()
 			end
 		end
+		SetMapByID(RevertID)
 		WorldMapDetailFrame:SetScale(RevertScale)
 		WorldMapScrollFrame:SetHorizontalScroll(RevertHorizontal)
 		WorldMapScrollFrame:SetVerticalScroll(RevertVertical)
-		SetMapByID(RevertID)
 	else
 		self:Hide()
 	end
 end
---------------------------
+
 local function LockLCFrame()
 	LCFrame:EnableMouse(LazyCommander.Unlocked)
 	LCFrame:SetMovable(LazyCommander.Unlocked)
 end
---------------------------
+
 -- Create main frame, register events and show information
 local function CreateLCFrame(self)
 	for _,event in next, Events do
@@ -354,13 +372,13 @@ local function CreateLCFrame(self)
 		LazyCommander.y = math.ceil(self:GetBottom())
 	end)
 end
---------------------------
+
 local function BlacklistBuilding(BuildingName)
-	local Buildings = C_Garrison.GetBuildings()
-	for _, Building in next, Buildings do
+	for _, Building in next, BuildingsData do
 		local BuildingID,BuildingNameCheck = C_Garrison.GetBuildingInfo(Building.buildingID)
 		if string.lower(BuildingNameCheck) == BuildingName then
 			LazyCommander_C.Filter[BuildingID] = not LazyCommander_C.Filter[BuildingID]
+			Frames[BuildingID].Filtered = LazyCommander_C.Filter[BuildingID]
 			ShowOrHideSubFrame(Frames[BuildingID], not LazyCommander_C.Filter[BuildingID])
 			return true
 		end
@@ -368,20 +386,23 @@ local function BlacklistBuilding(BuildingName)
 
 	return false
 end
---------------------------
-function LCFrame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
-	if lootSource == 10 then
-		LazyCommander_C.LastVisitedCache = GetRealmTime()
-		UpdateCache()
-	else
+
+local function GetGlobalData()
+	local GlobalData = {}
+	for _, Building in next, BuildingsData do
+		GlobalData[Building.buildingID] = {
+			WOCompletionTime = GetWOCompletionTime(Building.buildingID),
+			CacheCompletionTime = LazyCommander_C.LastVisitedCache + 300000,
+	}
 	end
+
+	return GlobalData
 end
---------------------------
+
 local Init = false
 function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
 	if Init then
-		local Buildings = C_Garrison.GetBuildings()
-		for _, Building in next, Buildings do
+		for _, Building in next, BuildingsData do
 			UpdateWO(Building.buildingID)
 		end
 	else
@@ -389,7 +410,7 @@ function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
 			print("Error: LazyCommander has no Garrison Info. Terminating.")
 			return
 		end
-
+		BuildingsData = C_Garrison.GetBuildings()
 		CreateLCFrame(self)
 		ShowOrHideLCFrame()
 		TickerUpdateCache()
@@ -397,46 +418,63 @@ function LCFrame:GARRISON_LANDINGPAGE_SHIPMENTS()
 	end
 end
 
---------------------------
 function LCFrame:BAG_UPDATE_DELAYED()
 	UpdateAllWO()
 end
---------------------------
+
 function LCFrame:GARRISON_SHIPMENT_RECEIVED()
 	UpdateAllWO()
 end
---------------------------
-function LCFrame:SHIPMENT_CRAFTER_CLOSED()
-	UpdateAllWO()
+
+local available
+function LCFrame:SHIPMENT_CRAFTER_OPENED()
+	C_Timer.After(0.1, function()
+		available = GarrisonCapacitiveDisplayFrame.available;
+		if (available and available > 0) then
+			C_Garrison.RequestShipmentCreation(available);
+		end
+	end)
 end
---------------------------
+
 local SpamControl = 0
 function LCFrame:SHIPMENT_CRAFTER_INFO()
+	available = GarrisonCapacitiveDisplayFrame.available;
+	if (available and available > 0) then
+		C_Garrison.RequestShipmentCreation(available);
+	end
+
 	if SpamControl + 0.1 < GetTime() then
 		SpamControl = GetTime()
 		UpdateAllWO()
 	end
 end
---------------------------
+
+function LCFrame:SHIPMENT_CRAFTER_CLOSED()
+	UpdateAllWO()
+end
+
 function LCFrame:GARRISON_MISSION_LIST_UPDATE()
 	UpdateMission()
 end
---------------------------
+
+function LCFrame:GARRISON_MISSION_NPC_CLOSED()
+	UpdateMission()
+end
+
 function LCFrame:PLAYER_ENTERED_WORLD()
 	ShowOrHideLCFrame()
 end
---------------------------
+
 function LCFrame:ZONE_CHANGED_NEW_AREA()
 	ShowOrHideLCFrame()
 end
---------------------------
-function LCFrame:GARRISON_BUILDING_PLACED()
-	local Buildings = C_Garrison.GetBuildings()
 
+function LCFrame:GARRISON_BUILDING_PLACED()
+	BuildingsData = C_Garrison.GetBuildings()
 	for FrameID, Frame in next, Frames do
 		if FrameID ~= "Completed" and FrameID ~= "Cache" then
 			local Active = false
-			for _, Building in next, Buildings do
+			for _, Building in next, BuildingsData do
 				if FrameID == Building.buildingID then
 					Active = true
 				end
@@ -445,7 +483,7 @@ function LCFrame:GARRISON_BUILDING_PLACED()
 		end
 	end
 
-	for _, Building in next, Buildings do
+	for _, Building in next, BuildingsData do
 		if HasWO(Building.buildingID) then
 			if not Frames[Building.buildingID] then
 				local Data = CreateWOData(Building.buildingID)
@@ -456,10 +494,10 @@ function LCFrame:GARRISON_BUILDING_PLACED()
 		end
 	end
 end
---------------------------
+
 local function GetBuildingsString()
 	local BuildingNames = {}
-	for _, Building in next, C_Garrison.GetBuildings() do
+	for _, Building in next, BuildingsData do
 		if HasWO(Building.buildingID) then
 			local _,BuildingName = C_Garrison.GetBuildingInfo(Building.buildingID)
 			table.insert(BuildingNames, BuildingName)
@@ -469,8 +507,9 @@ local function GetBuildingsString()
 	table.sort(BuildingNames)
 	return table.concat(BuildingNames,", ")
 end
---------------------------
+
 SLASH_LAZYCOMMANDER1 = "/lazycommander"
+SLASH_LAZYCOMMANDER2 = "/lazycom"
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 	msg = string.lower(msg)
 	local Pos = string.find(msg,"%s+")
@@ -502,7 +541,7 @@ SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 		end
 	elseif Command == "filter" then
 		if not SubCommand then
-			print([[Blacklisting is done by typing "/LazyCommander Filter Herb Garden"]])
+			print([[Blacklisting is done by typing "/Lazycom Filter Herb Garden"]])
 			print("Current Buildings:",GetBuildingsString())
 		elseif SubCommand then
 			if BlacklistBuilding(SubCommand) then
@@ -514,29 +553,15 @@ SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 		end
 	else
 		print("--LazyCommander Commands--")
-		print("/lazycommander lock - Locks or Unlocks the window in place")
-		print("/lazycommander hide - Shows or Hides the window when in garrison")
-		print("/lazycommander filter - Filter out a building")
+		print("/Lazycom lock - Locks or Unlocks the window in place")
+		print("/Lazycom hide - Shows or Hides the window when in garrison")
+		print("/Lazycom filter - Filter out a building")
 	end
-
-	-- local Transforms = GetWorldMapTransforms()
-	-- for k, v in next, Transforms do
-	-- 	if not GlobalTest[k] then
-	-- 		print("no value yet")
-	-- 		GlobalTest[k] = GetWorldMapTransformInfo(v)
-	-- 	else
-	-- 		if GlobalTest[k] == GetWorldMapTransformInfo(v) then
-	-- 			print(k..": value is the same")
-	-- 		else
-	-- 			print(k..": value is different")
-	-- 		end
-	-- 	end
-	-- end
 end
 
 
--- GARRISON_RECRUITMENT_FOLLOWERS_GENERATED
--- GARRISON_RECRUIT_FOLLOWER_RESULT
+-- GARRISON_RECRUITMENT_FOLLOWERS_GENERATED - On generation
+-- GARRISON_RECRUIT_FOLLOWER_RESULT - on selectioin
 -- SHIPMENT_CRAFTER_CLOSED
 -- GARRISON_SHIPMENT_RECEIVED
 -- C_Garrison.IsInvasionAvailable()
