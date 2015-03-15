@@ -5,8 +5,12 @@ local player = UnitName("player")
 local buildings = {}
 local frames = {}
 local queue
-local garrisonName = _G.GetMapNameByID(976)
-print(garrisonName)
+local garrisonName
+if FACTION_HORDE == UnitFactionGroup("player") then
+	garrisonName = _G.GetMapNameByID(976)
+else
+	garrisonName = _G.GetMapNameByID(971)
+end
 
 local function GlobalVarsInit()
 	if not LazyCommanderData then
@@ -395,9 +399,16 @@ function inGarrison()
 	if map and garrisonName == map then
 		return true
 	end
+	local _,_,_,_,_,_,_,instanceID = _G.GetInstanceInfo()
+
+	if instanceID == 1159 or instanceID == 1153 or instanceID == 1331 or instanceID == 1330 or instanceID == 1158 or instanceID == 1152 then
+		return true
+	end
 
 	return false
 end
+
+print(inGarrison())
 
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 	-- msg = string.lower(msg)
