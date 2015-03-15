@@ -1,9 +1,12 @@
 local frame = CreateFrame("Frame", "LazyCommander_Frame", UIParent)
-frame:RegisterEvent("GARRISON_BUILDING_LIST_UPDATE")
+frame:RegisterEvent("GARRISON_BUILDING_PLACED")
 local realm = GetRealmName()
 local player = UnitName("player")
 local buildings = {}
 local frames = {}
+local queue
+local garrisonName = _G.GetMapNameByID(976)
+print(garrisonName)
 
 local function GlobalVarsInit()
 	if not LazyCommanderData then
@@ -44,11 +47,6 @@ local function getRealmTime()
 	_,t.month,t.day,t.year = CalendarGetDate()
 	t.hour,t.min = GetGameTime()
 	return time(t)
-end
-
-local function getBuildingID(plotID)
-	local buildingID = C_Garrison.GetOwnedBuildingInfoAbbrev(plotID)
-	return buildingID
 end
 
 local function getUrgent(group, count)
@@ -114,8 +112,6 @@ local function getCount(group, id, offset)
 			if count.complete > 500 then
 				count.complete = 500
 			end
-			count.complete = 500
-			count.total = 500
 		else
 			count.total = "?"
 			count.complete = "?"
@@ -133,39 +129,38 @@ local function hasWorkOrder(buildingID)
 	end
 end
 
-local function updateIndicator(frame, texture)
+local function updateIndicator(subFrame, texture)
 	if texture ~= nil then
-		if not frame.indicator:IsShown() then
-			frame.indicator.Show()
+		if not subFrame.indicator:IsShown() then
+			subFrame.indicator.Show()
 		end
-		if frame.indicator:GetTexture() ~= texture then
-			frame.indicator:SetTexture(texture)
+		if subFrame.indicator:GetTexture() ~= texture then
+			subFrame.indicator:SetTexture(texture)
 		end
 	else
-		if frame.indicator:Show() then
-			frame.indicator:Hide()
-			frame.indicator:SetTexture(nil)
+		if subFrame.indicator:Show() then
+			subFrame.indicator:Hide()
+			subFrame.indicator:SetTexture(nil)
 		end
 	end
 end
 
-local function updateUrgent(frame)
-	local urgent = getUrgent(frame.group, frame.count)
-	if urgent ~= frame.urgent then
-		frame.urgent = urgent
+local function updateUrgent(subFrame)
+	local urgent = getUrgent(subFrame.group, subFrame.count)
+	if urgent ~= subFrame.urgent then
+		subFrame.urgent = urgent
 		if urgent == true then
-			updateIndicator(frame, [[Interface\RaidFrame\ReadyCheck-NotReady]])
+			updateIndicator(subFrame, [[Interface\Raidframe\ReadyCheck-NotReady]])
 		elseif urgent == false then
-			updateIndicator(frame, [[Interface\RaidFrame\ReadyCheck-Ready]])
+			updateIndicator(subFrame, [[Interface\Raidframe\ReadyCheck-Ready]])
 		elseif urgent == nil then
-			updateIndicator(frame)
+			updateIndicator(subFrame)
 		end
 	end
 end
 
-local function updateString(frame)
-	local count = frame.count
-	frame.string:SetText(count.complete.."/"..count.total)
+local function updateString(subFrame)
+	subFrame.string:SetText(subFrame.count.complete.."/"..subFrame.count.total)
 end
 
 local function unlockMainFrame(unlock)
@@ -173,17 +168,18 @@ local function unlockMainFrame(unlock)
 	frame:SetMovable(unlock)
 end
 
+local frameCount = 0
 local function createMainFrame()
 	local events = {
 	"SHOW_LOOT_TOAST",
 	"GARRISON_MISSION_STARTED",
 	"GARRISON_MISSION_FINISHED",
 	"GARRISON_MISSION_NPC_OPENED",
-	"GARRISON_MISSION_COMPLETE_RESPONSE",
 	"SHIPMENT_CRAFTER_INFO",
 	"SHIPMENT_CRAFTER_CLOSED",
-	"GARRISON_BUILDING_PLACED",
-
+	"GARRISON_BUILDING_REMOVED",
+	"GARRISON_LANDINGPAGE_SHIPMENTS",
+	"BAG_UPDATE_DELAYED",
 	}
 	for _,event in next, events do
 		frame:RegisterEvent(event)
@@ -203,25 +199,54 @@ local function createMainFrame()
 	end)
 end
 
-local function updateSubFrame(frame, init)
-	print(frame.buildingID)
-	local count = getCount(frame.group, frame.buildingID, false)
-	if count ~= frame.count then
-		frame.count = count
-		updateUrgent(frame)
-		updateString(frame)
+local function showSubFrame(subFrame, show)
+	if subFrame:IsShown() ~= show then
+		if show and subFrame.removed == false then
+			subFrame:Show()
+			subFrame:SetHeight(30)
+			frameCount = frameCount+1
+					else
+			subFrame:Hide()
+			subFrame:SetHeight(1)
+			frameCount = frameCount-1
+		end
+		frame:SetHeight(frameCount*30)
 	end
 end
 
+local function showMainFrame(show)
+	if frame:IsShown() ~= show then
+		if show then
+			frame:Show()
+		else
+			frame:Hide()
+		end
+	end
+end
+
+local function updateSubFrame(subFrame, init)
+	local count = getCount(subFrame.group, subFrame.buildingID, false)
+	if count ~= subFrame.count then
+		subFrame.count = count
+		updateUrgent(subFrame)
+		updateString(subFrame)
+		if init then
+			subFrame.icon:SetTexture(getIcon(subFrame.group, subFrame.buildingID))
+		end
+		return true
+	end
+	return false
+end
+
 local previousFrame = false
-local frameCount = 1
 local function createSubFrame(group, buildingID)
 	local subFrame = CreateFrame("Frame","LazyCom_"..frameCount,frame)
-	frame:SetHeight(frameCount*30)
 	frameCount = frameCount + 1
+	frame:SetHeight(frameCount*30)
 
 	subFrame.buildingID = buildingID
 	subFrame.group = group
+	subFrame.removed = false
 
 	if not previousFrame then
 		subFrame:SetPoint("TOPLEFT", frame, "TOPLEFT");
@@ -233,7 +258,6 @@ local function createSubFrame(group, buildingID)
 	subFrame:SetWidth(100)
 
 	subFrame.icon = subFrame:CreateTexture(nil,"BACKGROUND")
-	subFrame.icon:SetTexture(getIcon(group, buildingID))
 	subFrame.icon:SetPoint("TOPLEFT")
 	subFrame.icon:SetHeight(30)
 	subFrame.icon:SetWidth(30)
@@ -246,15 +270,25 @@ local function createSubFrame(group, buildingID)
 	subFrame.indicator:SetHeight(20)
 	subFrame.indicator:SetWidth(20)
 
-	updateSubFrame(subFrame)
+	updateSubFrame(subFrame, true)
 	return subFrame
 end
 
-function tickerCache()
+local function showOrCreateSubFrame(frame, buildingID, plotID)
+	if not frame then
+		frames["workOrder"][plotID] = createSubFrame("workOrder", buildingID)
+	else
+		updateSubFrame(frame, true)
+		showSubFrame(frame, true)
+		frame.removed = false
+	end
+end
+
+local function tickerCache()
 	if LazyCommanderData[realm][player].lastVisitCache then
 		local count = getCount("cache",nil,true)
 
-		C_Timer.After(count.offset*600+60, function()
+		C_Timer.After(count.offset*660, function()
 			updateSubFrame(frames["cache"])
 			local ticker = C_Timer.NewTicker(600, function()
 				updateSubFrame(frames["cache"])
@@ -263,27 +297,19 @@ function tickerCache()
 	end
 end
 
-
-function frame:GARRISON_BUILDING_PLACED(plotID)
-	if not frames["workOrder"][plotID] then
-		local buildingID = getBuildingID(plotID)
-		if hasWorkOrder(buildingID) then
-			local data = {}
-			data.name,_,data.capacity,data.complete,data.total,data.creationtime,data.duration = C_Garrison.GetLandingPageShipmentInfo(buildingID)
-			data.buildingID = buildingID
-			if data.duration == nil then
-				data.fullShipment = true
-			else
-				data.fullShipment = data.creationtime + ((data.total-data.complete)*data.duration)
-			end
-			LazyCommanderData[realm][player].Buildings[plotID] = data
-			frames["workOrder"][plotID] = createSubFrame("workOrder", buildingID)
+function frame:GARRISON_LANDINGPAGE_SHIPMENTS()
+	if not queue then
+		for k, subFrame in next, frames["workOrder"] do
+			updateSubFrame(subFrame)
 		end
+	else
+		updateSubFrame(frames["workOrder"][queue])
+		queue = nil
 	end
 end
 
 local init = false
-function frame:GARRISON_BUILDING_LIST_UPDATE()
+function frame:GARRISON_BUILDING_PLACED(plotID)
 	if not init then
 		init = true
 		GlobalVarsInit()
@@ -295,6 +321,32 @@ function frame:GARRISON_BUILDING_LIST_UPDATE()
 		if LazyCommanderData[realm][player].lastVisitCache then
 			tickerCache()
 		end
+	end
+
+	local buildingID = C_Garrison.GetOwnedBuildingInfoAbbrev(plotID)
+
+	if hasWorkOrder(buildingID) then
+		local data = {}
+		data.buildingID = buildingID
+
+		data.name,_,data.capacity,data.complete,data.total,data.creationtime,data.duration = C_Garrison.GetLandingPageShipmentInfo(buildingID)
+		if data.duration == nil then
+			data.fullShipment = true
+		else
+			data.fullShipment = data.creationtime + ((data.total-data.complete)*data.duration)
+		end
+
+		LazyCommanderData[realm][player].Buildings[plotID] = data
+		showOrCreateSubFrame(frames["workOrder"][plotID], buildingID, plotID)
+	end
+end
+
+function frame:GARRISON_BUILDING_REMOVED(plotID, buildingID)
+	print("Removing",plotID)
+	if frames["workOrder"][plotID] then
+		showSubFrame(frames["workOrder"][plotID], false)
+		frames["workOrder"][plotID].removed = true
+		LazyCommanderData[realm][player].Buildings[plotID] = nil
 	end
 end
 
@@ -317,13 +369,34 @@ function frame:GARRISON_MISSION_NPC_OPENED()
 	updateSubFrame(frames["mission"])
 end
 
-function frame:SHIPMENT_CRAFTER_CLOSED(...)
-
-	updateSubFrame(frame["workOrder"][plotID])
+local spamControl = 0
+function frame:SHIPMENT_CRAFTER_INFO(_,_,_,plotID)
+	if GetTime()+0.1 > spamControl then
+		queue = plotID
+		spamControl = GetTime()
+		C_Garrison.RequestLandingPageShipmentInfo()
+	end
 end
 
-function frame:SHIPMENT_CRAFTER_INFO(...)
-	print(...)
+function frame:SHIPMENT_CRAFTER_CLOSED()
+	C_Garrison.RequestLandingPageShipmentInfo()
+end
+
+function frame:GARRISON_SHIPMENT_RECEIVED()
+	-- C_Garrison.RequestLandingPa.geShipmentInfo()
+end
+
+function frame:BAG_UPDATE_DELAYED()
+
+end
+
+function inGarrison()
+	local map = _G.GetRealZoneText()
+	if map and garrisonName == map then
+		return true
+	end
+
+	return false
 end
 
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
@@ -374,3 +447,6 @@ SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 	-- 	print("/Lazycom filter - Filter out a building")
 	-- end
 end
+
+-- GARRISON_BUILDING_ACTIVATED(plotID, buildingID) - fires on finalizing a building
+-- GARRISON_BUILDING_UPDATED(buildingID, plotID)
