@@ -4,11 +4,11 @@ local realm = GetRealmName()
 local player = UnitName("player")
 local frames = {}
 
-if FACTION_ALLIANCE == UnitFactionGroup("player") then
-	local garrisonName = _G.GetMapNameByID(971)
-else
-	local garrisonName = _G.GetMapNameByID(976)
-end
+-- if FACTION_ALLIANCE == UnitFactionGroup("player") then
+-- 	local garrisonName = _G.GetMapNameByID(971)
+-- else
+-- 	local garrisonName = _G.GetMapNameByID(976)
+-- end
 
 local function GlobalVarsInit()
 	if not LazyCommanderData then
@@ -53,15 +53,8 @@ local function getRealmTime()
 end
 
 function inGarrison()
-	local map = _G.GetRealZoneText()
-	if map and garrisonName == map then
-		print("currently in garrison")
-		return true
-	end
-
 	local _,_,_,_,_,_,_,instanceID = _G.GetInstanceInfo()
 	if instanceID == 1159 or instanceID == 1153 or instanceID == 1331 or instanceID == 1330 or instanceID == 1158 or instanceID == 1152 then
-		print("currently in garrison")
 		return true
 	end
 	print("currently not in garrison")
@@ -235,9 +228,17 @@ local function showSubFrame(subFrame, show)
 	end
 end
 
-local function showMainFrame(show)
+local function showMainFrame()
+	if not LazyCommander.Shown then
+		if frame:IsShown() then
+			frame:Hide()
+			frame:UnregisterEvent("BAG_UPDATE_DELAYED")
+		end
+	end
+
+	local show = inGarrison()
 	if frame:IsShown() ~= show then
-		if show then
+		if show and LazyCommander.Shown == true then
 			frame:RegisterEvent("BAG_UPDATE_DELAYED")
 			frame:Show()
 		else
@@ -343,7 +344,7 @@ function frame:GARRISON_BUILDING_PLACED(plotID)
 		init = true
 		GlobalVarsInit()
 		createMainFrame()
-		showMainFrame(inGarrison())
+		showMainFrame()
 		frames["cache"] = createSubFrame("cache")
 		frames["mission"] = createSubFrame("mission")
 		frames["workOrder"] = {}
@@ -392,7 +393,6 @@ function frame:GARRISON_MISSION_NPC_OPENED()
 end
 
 function frame:GARRISON_MISSION_LIST_UPDATE()
-	print("mission_list_update")
 	updateSubFrame(frames["mission"])
 end
 
@@ -413,8 +413,7 @@ function frame:BAG_UPDATE_DELAYED()
 end
 
 function frame:ZONE_CHANGED_NEW_AREA()
-	print("checking")
-	showMainFrame(inGarrison())
+	showMainFrame()
 end
 
 local function getBuildingsString()
@@ -423,6 +422,8 @@ local function getBuildingsString()
 	end
 end
 
+SLASH_LAZYCOMMANDER1 = "/lazycom"
+SLASH_LAZYCOMMANDER2 = "/lazycommander"
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 	msg = string.lower(msg)
 	local Pos = string.find(msg,"%s+")
@@ -446,7 +447,7 @@ SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
 		end
 	elseif Command == "hide" then
 		LazyCommander.Shown = not LazyCommander.Shown
-		showMainFrame(LazyCommander.Shown)
+		showMainFrame()
 		if LazyCommander.Shown == true then
 			print("LazyCommander is now shown. The window will appear whenever you are in your garrison.")
 		else
