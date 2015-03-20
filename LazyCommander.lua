@@ -2,14 +2,12 @@ local frame = CreateFrame("Frame", "LazyCommander_Frame", UIParent)
 frame:RegisterEvent("GARRISON_BUILDING_PLACED")
 local realm = GetRealmName()
 local player = UnitName("player")
-local buildings = {}
 local frames = {}
-local queue
-local garrisonName
-if FACTION_HORDE == UnitFactionGroup("player") then
-	garrisonName = _G.GetMapNameByID(976)
+
+if FACTION_ALLIANCE == UnitFactionGroup("player") then
+	local garrisonName = _G.GetMapNameByID(971)
 else
-	garrisonName = _G.GetMapNameByID(971)
+	local garrisonName = _G.GetMapNameByID(976)
 end
 
 local function GlobalVarsInit()
@@ -32,7 +30,8 @@ local function GlobalVarsInit()
 		LazyCommander = {
 			x = math.floor(UIParent:GetWidth()),
 			y = math.floor(UIParent:GetHeight()),
-			Unlocked = true
+			Unlocked = true,
+			Shown = true,
 		}
 	end
 	LazyCommanderData.frames = {}
@@ -51,6 +50,22 @@ local function getRealmTime()
 	_,t.month,t.day,t.year = CalendarGetDate()
 	t.hour,t.min = GetGameTime()
 	return time(t)
+end
+
+function inGarrison()
+	local map = _G.GetRealZoneText()
+	if map and garrisonName == map then
+		print("currently in garrison")
+		return true
+	end
+
+	local _,_,_,_,_,_,_,instanceID = _G.GetInstanceInfo()
+	if instanceID == 1159 or instanceID == 1153 or instanceID == 1331 or instanceID == 1330 or instanceID == 1158 or instanceID == 1152 then
+		print("currently in garrison")
+		return true
+	end
+	print("currently not in garrison")
+	return false
 end
 
 local function getUrgent(group, count)
@@ -167,6 +182,8 @@ local function updateString(subFrame)
 	subFrame.string:SetText(subFrame.count.complete.."/"..subFrame.count.total)
 end
 
+
+
 local function unlockMainFrame(unlock)
 	frame:EnableMouse(unlock)
 	frame:SetMovable(unlock)
@@ -176,14 +193,14 @@ local frameCount = 0
 local function createMainFrame()
 	local events = {
 	"SHOW_LOOT_TOAST",
-	"GARRISON_MISSION_STARTED",
-	"GARRISON_MISSION_FINISHED",
 	"GARRISON_MISSION_NPC_OPENED",
 	"SHIPMENT_CRAFTER_INFO",
 	"SHIPMENT_CRAFTER_CLOSED",
 	"GARRISON_BUILDING_REMOVED",
+	"GARRISON_SHIPMENT_RECEIVED",
 	"GARRISON_LANDINGPAGE_SHIPMENTS",
-	"BAG_UPDATE_DELAYED",
+	"ZONE_CHANGED_NEW_AREA",
+	"GARRISON_MISSION_LIST_UPDATE",
 	}
 	for _,event in next, events do
 		frame:RegisterEvent(event)
@@ -221,15 +238,22 @@ end
 local function showMainFrame(show)
 	if frame:IsShown() ~= show then
 		if show then
+			frame:RegisterEvent("BAG_UPDATE_DELAYED")
 			frame:Show()
 		else
+			frame:UnregisterEvent("BAG_UPDATE_DELAYED")
 			frame:Hide()
 		end
 	end
 end
 
-local function updateSubFrame(subFrame, init)
-	local count = getCount(subFrame.group, subFrame.buildingID, false)
+local function updateSubFrame(subFrame, init, count)
+	if not count then
+		count = getCount(subFrame.group, subFrame.buildingID, false)
+	else
+		subFrame.count.total = count
+		count = subFrame.count
+	end
 	if count ~= subFrame.count then
 		subFrame.count = count
 		updateUrgent(subFrame)
@@ -281,18 +305,22 @@ end
 local function showOrCreateSubFrame(frame, buildingID, plotID)
 	if not frame then
 		frames["workOrder"][plotID] = createSubFrame("workOrder", buildingID)
-	else
+	elseif frame.filtered == false then
 		updateSubFrame(frame, true)
 		showSubFrame(frame, true)
 		frame.removed = false
 	end
 end
 
+local function blacklistSubFrame(group, ID)
+
+end
+
 local function tickerCache()
 	if LazyCommanderData[realm][player].lastVisitCache then
 		local count = getCount("cache",nil,true)
 
-		C_Timer.After(count.offset*660, function()
+		C_Timer.After((count.offset*600)+60, function()
 			updateSubFrame(frames["cache"])
 			local ticker = C_Timer.NewTicker(600, function()
 				updateSubFrame(frames["cache"])
@@ -302,22 +330,20 @@ local function tickerCache()
 end
 
 function frame:GARRISON_LANDINGPAGE_SHIPMENTS()
-	if not queue then
-		for k, subFrame in next, frames["workOrder"] do
-			updateSubFrame(subFrame)
-		end
-	else
-		updateSubFrame(frames["workOrder"][queue])
-		queue = nil
+	print("refreshing all")
+	for k, subFrame in next, frames["workOrder"] do
+		updateSubFrame(subFrame)
 	end
 end
 
 local init = false
 function frame:GARRISON_BUILDING_PLACED(plotID)
 	if not init then
+		print("creating main frame")
 		init = true
 		GlobalVarsInit()
 		createMainFrame()
+		showMainFrame(inGarrison())
 		frames["cache"] = createSubFrame("cache")
 		frames["mission"] = createSubFrame("mission")
 		frames["workOrder"] = {}
@@ -361,25 +387,17 @@ function frame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
   end
 end
 
-function frame:GARRISON_MISSION_STARTED()
-	updateSubFrame(frames["mission"])
-end
-
-function frame:GARRISON_MISSION_FINISHED()
-	updateSubFrame(frames["mission"])
-end
-
 function frame:GARRISON_MISSION_NPC_OPENED()
 	updateSubFrame(frames["mission"])
 end
 
-local spamControl = 0
-function frame:SHIPMENT_CRAFTER_INFO(_,_,_,plotID)
-	if GetTime()+0.1 > spamControl then
-		queue = plotID
-		spamControl = GetTime()
-		C_Garrison.RequestLandingPageShipmentInfo()
-	end
+function frame:GARRISON_MISSION_LIST_UPDATE()
+	print("mission_list_update")
+	updateSubFrame(frames["mission"])
+end
+
+function frame:SHIPMENT_CRAFTER_INFO(_,total,_,plotID)
+	updateSubFrame(frames["workOrder"][plotID],nil,total)
 end
 
 function frame:SHIPMENT_CRAFTER_CLOSED()
@@ -387,76 +405,74 @@ function frame:SHIPMENT_CRAFTER_CLOSED()
 end
 
 function frame:GARRISON_SHIPMENT_RECEIVED()
-	-- C_Garrison.RequestLandingPa.geShipmentInfo()
+	C_Garrison.RequestLandingPageShipmentInfo()
 end
 
 function frame:BAG_UPDATE_DELAYED()
-
+	C_Garrison.RequestLandingPageShipmentInfo()
 end
 
-function inGarrison()
-	local map = _G.GetRealZoneText()
-	if map and garrisonName == map then
-		return true
-	end
-	local _,_,_,_,_,_,_,instanceID = _G.GetInstanceInfo()
-
-	if instanceID == 1159 or instanceID == 1153 or instanceID == 1331 or instanceID == 1330 or instanceID == 1158 or instanceID == 1152 then
-		return true
-	end
-
-	return false
+function frame:ZONE_CHANGED_NEW_AREA()
+	print("checking")
+	showMainFrame(inGarrison())
 end
 
-print(inGarrison())
+local function getBuildingsString()
+	for k, v in next, C_Garrison.GetBuildings() do
+		print(k, v)
+	end
+end
 
 SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
-	-- msg = string.lower(msg)
-	-- local Pos = string.find(msg,"%s+")
-	-- local Command
-	-- local SubCommand
-	-- if Pos ~= nil then
-	-- 	SubCommand = strtrim(string.sub(msg,Pos+1,string.len(msg))," ")
-	-- 	Command = strtrim(string.sub(msg,1,Pos)," ")
-	-- else
-	-- 	Command = msg
-	-- 	SubCommand = nil
-	-- end
+	msg = string.lower(msg)
+	local Pos = string.find(msg,"%s+")
+	local Command
+	local SubCommand
+	if Pos ~= nil then
+		SubCommand = strtrim(string.sub(msg,Pos+1,string.len(msg))," ")
+		Command = strtrim(string.sub(msg,1,Pos)," ")
+	else
+		Command = msg
+		SubCommand = nil
+	end
 
-	-- if Command == "lock" then
-	-- 	LazyCommander.Unlocked = not LazyCommander.Unlocked
-	-- 	LockLCFrame()
-	-- 	if LazyCommander.Unlocked == true then
-	-- 		print("LazyCommander is now unlocked. Drag the window to your liking.")
-	-- 	else
-	-- 		print("LazyCommander is now locked. Drag the window to your liking.")
-	-- 	end
-	-- elseif Command == "hide" then
-	-- 	LazyCommander.Hidden = not LazyCommander.Hidden
-	-- 	ShowOrHideLCFrame()
-	-- 	if LazyCommander.Hidden == true then
-	-- 		print("LazyCommander is now hidden. The window will not appear until you show it again. Type /lazycommander show to make it reappear.")
-	-- 	else
-	-- 		print("LazyCommander is now shown. The window will appear whenever you are in your garrison.")
-	-- 	end
-	-- elseif Command == "filter" then
-	-- 	if not SubCommand then
-	-- 		print([[Blacklisting is done by typing "/Lazycom Filter Herb Garden"]])
-	-- 		print("Current Buildings:",GetBuildingsString())
-	-- 	elseif SubCommand then
-	-- 		if BlacklistBuilding(SubCommand) then
-	-- 			print("Done:", SubCommand)
-	-- 		else
-	-- 			print("Error:",SubCommand,"is not a known building.")
-	-- 			print("Current Buildings:",GetBuildingsString())
-	-- 		end
-	-- 	end
-	-- else
-	-- 	print("--LazyCommander Commands--")
-	-- 	print("/Lazycom lock - Locks or Unlocks the window in place")
-	-- 	print("/Lazycom hide - Shows or Hides the window when in garrison")
-	-- 	print("/Lazycom filter - Filter out a building")
-	-- end
+	if Command == "lock" then
+		LazyCommander.Unlocked = not LazyCommander.Unlocked
+		unlockMainFrame(LazyCommander.Unlocked)
+		if LazyCommander.Unlocked == true then
+			print("LazyCommander is now unlocked. Drag the window to your liking.")
+		else
+			print("LazyCommander is now locked. Drag the window to your liking.")
+		end
+	elseif Command == "hide" then
+		LazyCommander.Shown = not LazyCommander.Shown
+		showMainFrame(LazyCommander.Shown)
+		if LazyCommander.Shown == true then
+			print("LazyCommander is now shown. The window will appear whenever you are in your garrison.")
+		else
+			print("LazyCommander is now hidden. The window will not appear until you show it again. Type /lazycommander show to make it reappear.")
+		end
+	elseif Command == "filter" then
+		if not SubCommand then
+			print([[Blacklisting is done by typing "/Lazycom Filter Herb Garden"]])
+			for k, v in next, C_Garrison.GetBuildings() do
+				print(k, v)
+			end
+			print("Current Buildings:",GetBuildingsString())
+		elseif SubCommand then
+			if BlacklistBuilding(SubCommand) then
+				print("Done:", SubCommand)
+			else
+				print("Error:",SubCommand,"is not a known building.")
+				print("Current Buildings:",GetBuildingsString())
+			end
+		end
+	else
+		print("--LazyCommander Commands--")
+		print("/Lazycom lock - Locks or Unlocks the window in place")
+		print("/Lazycom hide - Shows or Hides the window when in garrison")
+		print("/Lazycom filter - Filter out a building")
+	end
 end
 
 -- GARRISON_BUILDING_ACTIVATED(plotID, buildingID) - fires on finalizing a building
