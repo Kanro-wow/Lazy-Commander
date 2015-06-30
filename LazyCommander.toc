@@ -1,4 +1,4 @@
-## Interface: 60000
+## Interface: 60200
 ## Title : LazyCommander
 ## Notes: For the truely lazy commander, adding some quality of life changes for your garrison
 ## Author: Kanro
