@@ -1,524 +1,347 @@
-local frame = CreateFrame("Frame", "LazyCommander_Frame", UIParent)
-frame:RegisterEvent("GARRISON_BUILDING_PLACED")
+RaidFrame:UnregisterEvent('UPDATE_INSTANCE_INFO')
+RaidInfoScrollFrame:SetScript('OnShow', nil)
+RaidInfoFrame:SetScript('OnShow', function(self) self:Hide() end)
+RaidFrameRaidInfoButton:SetScript('OnEnter', function(self)
+    self:Disable()
+    -- self:SetMotionScriptsWhileDisabled(true)
+    print('|cffff0000WARNING:|r The raid info button is disabled until Blizzard fixes their shit, for your safety.')
+end)
+
+
+
+local f = CreateFrame("FRAME", "LazyCommander_Frame", UIParent)
+f:RegisterEvent("PLAYER_ENTERING_WORLD")
+local icon = {
+	blank = {0,0,0,0},
+	notready = [[Interface\Raidframe\ReadyCheck-NotReady]],
+	ready = [[Interface\Raidframe\ReadyCheck-Ready]],
+	mission = [[Interface\Icons\mountjournalportrait]],
+	missionShipyard = [[Interface\Icons\inv_garrison_cargoship]],
+	cache = [[Interface\Icons\inv_garrison_resource]],
+}
+
+local frames = {}
 local realm = GetRealmName()
 local player = UnitName("player")
-local frames = {}
-local modifier = false
 
-local function GlobalVarsInit()
-	if not LazyCommanderData then
-		LazyCommanderData = {}
-	end
-	if not LazyCommanderData[realm] then
-		LazyCommanderData[realm] = {}
-	end
-	if not LazyCommanderData[realm][player] then
-		local _,_,Class = UnitClass("player")
-		LazyCommanderData[realm][player] = {
-		Class = Class,
-		lastVisitCache = false,
-		Filter = {},
-		Buildings = {},
-		}
-	end
+local function globalVarsInit()
 	if not LazyCommander then
 		LazyCommander = {
-			x = math.floor(UIParent:GetWidth()),
-			y = math.floor(UIParent:GetHeight()),
-			Unlocked = true,
-			Shown = true,
-			AutoWorkorder = true,
-			IgnoreAutoWorkorderOnShift = true,
+			x = 500,
+			y = 400,
+			unlocked = true,
+			show = true,
+			autoWorkorder = true,
+			ignoreAutoWorkorderOnShift = true,
+			hideInCombat = true,
+			hideOnDead = true,
+			onlyInGarrison = true,
+			combineMissionTypes = true,
+			showCache = true,
+			showMission = true,
 		}
+	end
+
+	if not LazyCommander[realm] then
+		LazyCommander[realm] = {}
+	end
+	if not LazyCommander[realm][player] then
+		LazyCommander[realm][player] = {}
 	end
 
 	if not LazyCommander_C then
 		LazyCommander_C = {
-			blacklist = {},
+			blacklist = {}
 		}
 	end
-	LazyCommanderData.frames = {}
 end
 
-frame:SetScript("OnEvent", function(self, event, ...)
+f:SetScript("OnEvent", function(self, event, ...)
 	if self[event] then
-		self[event](self,...)
+		self[event](...)
 	else
-		print('LazyCommander:',event,'has no function!')
+		print('LazyCommander:',event,'has no function! Contact the addon developer on curse or github about this issue.')
 	end
 end)
 
-local function getRealmTime()
+local function getRealTime()
 	local t = {}
 	_,t.month,t.day,t.year = CalendarGetDate()
 	t.hour,t.min = GetGameTime()
 	return time(t)
 end
 
-function inGarrison()
-	local _,_,_,_,_,_,_,instanceID = _G.GetInstanceInfo()
-	if instanceID == 1159 or instanceID == 1153 or instanceID == 1331 or instanceID == 1330 or instanceID == 1158 or instanceID == 1152 then
-		return true
-	end
-	return false
-end
-
-local function getUrgent(group, count)
-	if group == "workOrder" then
-		if count.complete == 0 and count.total == 0 then
-			return nil
-		elseif count.total - count.complete >= 5 then
-			return false
-		else
-			return true
-		end
-	elseif group == "mission" then
-		if count.total == count.complete and count.complete > 0 then
-			return true
-		elseif count.total == 0 and count.complete == 0 then
-			return nil
-		elseif count.complete == 0 and count.total > 0 then
-			return false
-		elseif count.complete / count.total > 0.5 then
-			return true
-		elseif count.complete / count.total <= 0.5 then
-			return false
-		end
-	elseif group == "cache" then
-		if count.complete == "?" or count.complete > 350 then
-			return true
-		else
-			return false
-		end
+local function getCacheSize()
+	if _G.IsQuestFlaggedCompleted(37485) then
+		return 1000
+	elseif _G.IsQuestFlaggedCompleted(37935) or _G.IsQuestFlaggedCompleted(38445) then
+		return 750
+	else
+		return 500
 	end
 end
 
-local function getIcon(group, buildingID)
-	if group == "workOrder" then
-		local _,_,_,icon = C_Garrison.GetBuildingInfo(buildingID);
-		return icon
-	elseif group == "mission" then
-		return [[Interface\Icons\mountjournalportrait]]
-	elseif group == "cache" then
-		return [[Interface\Icons\inv_garrison_resource]]
-	end
-end
+local function inGarrison()
+	local prevID = GetCurrentMapAreaID()
+	SetMapToCurrentZone()
+	local currentID = GetCurrentMapAreaID()
+	SetMapByID(prevID)
 
-local function getCount(group, id, offset)
-	local count = {}
-	if group == "workOrder" then
-		_,count.texture,count.capacity, count.complete, count.total = C_Garrison.GetLandingPageShipmentInfo(id)
-		if count.total == nil then
-			count.complete = 0
-			count.total = 0
-		end
-	elseif group == "mission" then
-		count.total = #C_Garrison.GetInProgressMissions()
-		count.complete = #C_Garrison.GetCompleteMissions()
-	elseif group == "cache" then
-		if LazyCommanderData[realm][player].lastVisitCache then
-			count.total = 500
-			count.complete = (getRealmTime() - LazyCommanderData[realm][player].lastVisitCache) / 600
-			if offset then
-				count.offset = count.complete - math.floor(count.complete)
-			end
-			count.complete = math.floor(count.complete)
-			if count.complete > 500 then
-				count.complete = 500
-			end
-		else
-			count.total = "?"
-			count.complete = "?"
-		end
-	end
-	return count
+	return IsMapGarrisonMap(currentID)
 end
 
 local function hasWorkOrder(buildingID)
 	local _,_,shipmentCapacity = C_Garrison.GetLandingPageShipmentInfo(buildingID)
-	if shipmentCapacity ~= nil then
+	if shipmentCapacity ~= nil and shipmentCapacity > 0 then
 		return true
 	else
 		return false
 	end
 end
 
-local function requestWorkOrder(progress,total)
-	local available = total - progress
-	if (available and available > 0) then
-		C_Garrison.RequestShipmentCreation(available);
+local function requestWorkorder(number)
+	if number == 0 then
+		return
+	end
+	if(C_Garrison.IsOnShipmentQuestForNPC()) then
+		number = 1
+	end
+	print("requesting",number)
+	local button = GarrisonCapacitiveDisplayFrame.StartWorkOrderButton
+	if (number and number > 0 and button and button:IsEnabled()) then
+		C_Garrison.RequestShipmentCreation(available)
 	end
 end
 
-local function updateIndicator(frame, texture)
-	if texture ~= nil then
-		if not frame.indicator:IsShown() then
-			frame.indicator.Show()
+local function getIndicator(group, total, complete)
+	if group =="workOrder" then
+		if complete == 0 and total == 0 then
+			return icon.blank
+		elseif total - complete >= 5 then
+			return icon.ready
+		else
+			return icon.notready
 		end
-		if frame.indicator:GetTexture() ~= texture then
-			frame.indicator:SetTexture(texture)
+	elseif group =="mission" or group == "shipMission" then
+		if total == 0 and complete == 0 then
+			return icon.blank
+		elseif total == complete then
+			return icon.notready
+		elseif complete == 0 and total > 0 then
+			return icon.ready
+		elseif complete/total > 0.6 then
+			return icon.notready
+		else
+			return icon.ready
 		end
+	elseif group == "cache" then
+		if total == nil or complete == nil then
+			return icon.notready
+		elseif total - complete < 175 then
+			return icon.notready
+		else
+			return icon.ready
+		end
+	end
+end
+
+local function getCount(group, id)
+	local total, complete
+	if group == "workOrder" then
+		_,_,_, complete, total = C_Garrison.GetLandingPageShipmentInfo(id)
+		if total == nil then
+			total, complete = 0,0
+		end
+	elseif group == "mission" then
+		total = #C_Garrison.GetInProgressMissions(id)
+		complete = #C_Garrison.GetInProgressMissions(id)
+	elseif group == "cache" then
+		if LazyCommander[realm][player] then
+			total = cacheSize
+			complete = math.floor((getRealTime() - LazyCommander[realm][player].lastVisitCache) / 600)
+			if complete > total then
+				complete = total
+			end
+		end
+	end
+	return total,complete
+end
+
+local function canShow()
+	if LazyCommander.show then
+		if LazyCommander.hideInCombat and InCombatLockdown() then
+			print("cant show because not in combat")
+			return false
+		elseif LazyCommander.hideOnDead and UnitIsDeadOrGhost("player") then
+			print("cant show because dead")
+			return false
+		elseif LazyCommander.onlyInGarrison and not inGarrison() then
+			print("cant show because in garrison")
+			return false
+		end
+		print("can show")
+		return true
 	else
-		if frame.indicator:Show() then
-			frame.indicator:Hide()
-			frame.indicator:SetTexture(nil)
+		return false
+	end
+end
+
+local function showFrame(frame, show)
+	if show == nil then
+		show = canShow()
+	end
+	if frame:IsShown() ~= show then
+		if show == true then
+			frame:Show()
+		else
+			frame:Hide()
 		end
 	end
 end
 
-local function updateUrgent(frame)
-	local urgent = getUrgent(frame.group, frame.count)
-	if urgent ~= frame.urgent then
-		frame.urgent = urgent
-		if urgent == true then
-			updateIndicator(frame, [[Interface\Raidframe\ReadyCheck-NotReady]])
-		elseif urgent == false then
-			updateIndicator(frame, [[Interface\Raidframe\ReadyCheck-Ready]])
-		elseif urgent == nil then
-			updateIndicator(frame)
-		end
-	end
-end
 
-local function updateString(frame)
-	frame.string:SetText(frame.count.complete.."/"..frame.count.total)
-end
-
-
-
-local function unlockMainFrame(unlock)
-	frame:EnableMouse(unlock)
-	frame:SetMovable(unlock)
-end
-
-local frameCount = 0
-local function createMainFrame()
+local function registerEvents(options)
 	local events = {
-	"SHOW_LOOT_TOAST",
-	"GARRISON_MISSION_NPC_OPENED",
-	"SHIPMENT_CRAFTER_OPENED",
-	"SHIPMENT_CRAFTER_CLOSED",
-	"GARRISON_BUILDING_REMOVED",
-	"GARRISON_SHIPMENT_RECEIVED",
-	"GARRISON_LANDINGPAGE_SHIPMENTS",
-	"ZONE_CHANGED_NEW_AREA",
-	"GARRISON_MISSION_LIST_UPDATE",
-	"SHIPMENT_CRAFTER_INFO",
-	"ENCOUNTER_LOOT_RECEIVED",
+		"QUEST_TURNED_IN",
+		"SHOW_LOOT_TOAST",
+		"GARRISON_MISSION_LIST_UPDATE",
 	}
 	for _,event in next, events do
-		frame:RegisterEvent(event)
+		f:RegisterEvent(event)
 	end
 
-	frame:SetWidth(130)
-	frame:SetPoint("BOTTOMLEFT", LazyCommander.x, LazyCommander.y)
-	frame:SetClampedToScreen(true)
-	frame:RegisterForDrag("LeftButton")
+	if options then
+		if LazyCommander.hideInCombat then
+			f:RegisterEvent("PLAYER_REGEN_DISABLED")
+			f:RegisterEvent("PLAYER_REGEN_ENABLED")
+		end
+		if LazyCommander.onlyInGarrison then
+			f:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+		end
+		if LazyCommander.hideOnDead then
+			f:RegisterEvent("PLAYER_ALIVE")
+			f:RegisterEvent("PLAYER_DEAD")
+		end
+		if LazyCommander.autoWorkorder then
+			f:RegisterEvent("SHIPMENT_CRAFTER_OPENED")
+			f:RegisterEvent("SHIPMENT_CRAFTER_CLOSED")
+		end
+	end
+end
 
-	unlockMainFrame(LazyCommander.Unlocked)
-	frame:SetScript("OnDragStart",frame.StartMoving)
-	frame:SetScript("OnDragStop", function()
-		frame:StopMovingOrSizing()
-		LazyCommander.x = math.ceil(frame:GetLeft())
-		LazyCommander.y = math.ceil(frame:GetBottom())
+local function unlockFrame(unlock)
+	f:EnableMouse(unlock)
+	f:SetMovable(unlock)
+	LazyCommander.unlocked = not unlock
+end
+
+local function createFrame()
+	registerEvents(true)
+	print("created frame")
+	f:Show()
+
+	if not canShow() then
+		print("hiding frame")
+		f:Hide()
+	end
+
+	f:SetWidth(110)
+	f:SetHeight(300)
+	f:SetPoint("TOPLEFT", LazyCommander.x, LazyCommander.y)
+	print(LazyCommander.x, LazyCommander.y)
+	f:SetClampedToScreen(true)
+	f:RegisterForDrag("LeftButton")
+
+	unlockFrame(LazyCommander.unlocked)
+	f:SetScript("OnDragStart",f.StartMoving)
+	f:SetScript("OnDragStop", function()
+		f:StopMovingOrSizing()
+		LazyCommander.x, LazyCommander.y = f:GetBoundsRect()
 	end)
 end
 
-local function showSubFrame(subFrame, show)
-	if subFrame:IsShown() ~= show then
-		if show and subFrame.removed == false then
-			subFrame:Show()
-			subFrame:SetHeight(30)
-			frameCount = frameCount+1
-					else
-			subFrame:Hide()
-			subFrame:SetHeight(1)
-			frameCount = frameCount-1
-		end
-		frame:SetHeight(frameCount*30)
+function f:SHIPMENT_CRAFTER_OPENED()
+	if LazyCommander.ignoreAutoWorkorderOnShift ~= IsShiftKeyDown or (LazyCommander.ignoreAutoWorkorderOnShift == false and IsShiftKeyDown == false) then
+		f:RegisterEvent("SHIPMENT_UPDATE")
+		f:RegisterEvent("SHIPMENT_CRAFTER_INFO")
 	end
 end
 
-local function showMainFrame()
-	if not LazyCommander.Shown then
-		if frame:IsShown() then
-			frame:Hide()
-			frame:UnregisterEvent("BAG_UPDATE_DELAYED")
-		end
-	end
-
-	local show = inGarrison()
-	if frame:IsShown() ~= show then
-		if show and LazyCommander.Shown == true then
-			frame:RegisterEvent("BAG_UPDATE_DELAYED")
-			frame:Show()
-		else
-			frame:UnregisterEvent("BAG_UPDATE_DELAYED")
-			frame:Hide()
-		end
-	end
+function f:SHIPMENT_CRAFTER_CLOSED()
+	f:UnregisterEvent("LOOT_CLOSED")
+	f:UnregisterEvent("SHIPMENT_UPDATE")
+	f:UnregisterEvent("SHIPMENT_CRAFTER_INFO")
+	C_Garrison.RequestLandingPageShipmentInfo()
 end
 
-local function updateSubFrame(subFrame, init, count)
-	if subFrame then
-		if not count then
-			count = getCount(subFrame.group, subFrame.buildingID, false)
-		else
-			subFrame.count.total = count
-			count = subFrame.count
-		end
-		if count ~= subFrame.count then
-			subFrame.count = count
-			updateUrgent(subFrame)
-			updateString(subFrame)
-			if init then
-				subFrame.icon:SetTexture(getIcon(subFrame.group, subFrame.buildingID))
-			end
-			return true
-		end
-		return false
-	else
-		return false
-	end
-end
-
-local previousFrame = false
-local function createSubFrame(group, buildingID)
-	local subFrame = CreateFrame("Frame","LazyCom_"..frameCount,frame)
-	frameCount = frameCount + 1
-	frame:SetHeight(frameCount*30)
-
-	subFrame.buildingID = buildingID
-	subFrame.group = group
-	subFrame.removed = false
-
-	if not previousFrame then
-		subFrame:SetPoint("TOPLEFT", frame, "TOPLEFT");
-	else
-		subFrame:SetPoint("TOPRIGHT", previousFrame, "BOTTOMRIGHT",0,0);
-	end
-	previousFrame = subFrame
-	subFrame:SetHeight(30)
-	subFrame:SetWidth(100)
-
-	subFrame.icon = subFrame:CreateTexture(nil,"BACKGROUND")
-	subFrame.icon:SetPoint("TOPLEFT")
-	subFrame.icon:SetHeight(30)
-	subFrame.icon:SetWidth(30)
-
-	subFrame.string = subFrame:CreateFontString(nil, "BACKGROUND", "GameFontHighlight");
-	subFrame.string:SetPoint("TOPLEFT", subFrame.icon, 35, -7)
-
-	subFrame.indicator = subFrame:CreateTexture(nil,"BACKGROUND")
-	subFrame.indicator:SetPoint("TOPRIGHT", subFrame.string , 20, 3)
-	subFrame.indicator:SetHeight(20)
-	subFrame.indicator:SetWidth(20)
-
-	updateSubFrame(subFrame, true)
-	return subFrame
-end
-
-local function showOrCreateSubFrame(frame, buildingID, plotID)
-	if not frame then
-		frames["workOrder"][plotID] = createSubFrame("workOrder", buildingID)
-	elseif frame.filtered == false then
-		updateSubFrame(frame, true)
-		showSubFrame(frame, true)
-		frame.removed = false
-	end
-end
-
-local function blacklistSubFrame(group, ID)
+function f:SHIPMENT_CRAFTER_INFO(progress,total,plotID)
+	print(progress,total,plotID)
+	f:UnregisterEvent("SHIPMENT_CRAFTER_INFO")
+	f:RegisterEvent("LOOT_CLOSED")
+	requestWorkorder(total - progress)
 
 end
 
-local function tickerCache()
-	if LazyCommanderData[realm][player].lastVisitCache then
-		local count = getCount("cache",nil,true)
+function f:LOOT_CLOSED()
+	f:UnregisterEvent("LOOT_CLOSED")
+	f:RegisterEvent("SHIPMENT_CRAFTER_INFO")
+end
 
-		C_Timer.After((count.offset*600)+60, function()
-			updateSubFrame(frames["cache"])
-			local ticker = C_Timer.NewTicker(600, function()
-				updateSubFrame(frames["cache"])
-			end)
-		end)
+function f:PLAYER_REGEN_DISABLED()
+	f:Hide()
+end
+
+function f:PLAYER_REGEN_ENABLED()
+	if canShow() then
+		f:Show()
 	end
 end
 
-function frame:GARRISON_LANDINGPAGE_SHIPMENTS()
-	for k, subFrame in next, frames["workOrder"] do
-		updateSubFrame(subFrame)
+function f:PLAYER_DEAD()
+ f:Hide()
+end
+
+function f:PLAYER_ALIVE()
+	if canShow() then
+		f:Show()
 	end
 end
 
-local init = false
-function frame:GARRISON_BUILDING_PLACED(plotID)
-	if not init then
-		init = true
-		GlobalVarsInit()
-		createMainFrame()
-		showMainFrame()
-		frames["cache"] = createSubFrame("cache")
-		frames["mission"] = createSubFrame("mission")
-		frames["workOrder"] = {}
-		tickerCache()
-		if LazyCommanderData[realm][player].lastVisitCache then
-			tickerCache()
-		end
-	end
-
-	local buildingID, buildingName = C_Garrison.GetOwnedBuildingInfoAbbrev(plotID)
-
-	if not LazyCommander_C.blacklist[string.lower(buildingName)] then
-		if hasWorkOrder(buildingID) then
-			local data = {}
-			data.buildingID = buildingID
-
-			data.name,_,data.capacity,data.complete,data.total,data.creationtime,data.duration = C_Garrison.GetLandingPageShipmentInfo(buildingID)
-			if data.duration == nil then
-				data.fullShipment = true
-			else
-				data.fullShipment = data.creationtime + ((data.total-data.complete)*data.duration)
-			end
-
-			LazyCommanderData[realm][player].Buildings[plotID] = data
-			showOrCreateSubFrame(frames["workOrder"][plotID], buildingID, plotID)
-		end
+function f:QUEST_TURNED_IN(questID)
+	if questID == 37485 or questID == 37935 or questID == 38445 then
+		setCacheSize()
+		-- UPDATE CACHE FRAME NOW
 	end
 end
 
-function frame:GARRISON_BUILDING_REMOVED(plotID, buildingID)
-	print("Removing",plotID)
-	if frames["workOrder"][plotID] then
-		showSubFrame(frames["workOrder"][plotID], false)
-		frames["workOrder"][plotID].removed = true
-		LazyCommanderData[realm][player].Buildings[plotID] = nil
-	end
-end
-
-function frame:SHOW_LOOT_TOAST(_,_,_,_,_,_,lootSource)
+function f:SHOW_LOOT_TOAST(_,_,_,_,_,lootSource)
 	if lootSource == 10 then
-		LazyCommanderData[realm][player].lastVisitCache = getRealmTime()
-		updateSubFrame(frames["cache"])
+		LazyCommander[realm][player].lastVisitCache = getRealTime()
+		-- UPDATE CACHE FRAME NOW
   end
 end
 
-function frame:GARRISON_MISSION_NPC_OPENED()
-	updateSubFrame(frames["mission"])
-end
-
-function frame:GARRISON_MISSION_LIST_UPDATE()
-	updateSubFrame(frames["mission"])
-end
-
-function frame:SHIPMENT_CRAFTER_OPENED()
-	modifier = IsShiftKeyDown();
-end
-
-function frame:SHIPMENT_CRAFTER_CLOSED()
-	C_Garrison.RequestLandingPageShipmentInfo()
-end
-
-function frame:GARRISON_SHIPMENT_RECEIVED()
-	C_Garrison.RequestLandingPageShipmentInfo()
-end
-
-function frame:BAG_UPDATE_DELAYED()
-	C_Garrison.RequestLandingPageShipmentInfo()
-end
-
-function frame:ZONE_CHANGED_NEW_AREA()
-	showMainFrame()
-end
-
-function frame:ENCOUNTER_LOOT_RECEIVED()
-	C_Garrison.RequestLandingPageShipmentInfo()
-end
-
-function frame:SHIPMENT_CRAFTER_INFO(_,progress,total,plotID)
-	updateSubFrame(frames["workOrder"][plotID],nil,progress)
-	if LazyCommander.AutoWorkorder == true and plotID ~= 98 and modifier == false then
-		requestWorkOrder(progress, total)
+function f:SHIPMENT_UPDATE(...)
+	local shipmentUpdate = ...
+	if shipmentUpdate then
+		print(shipmentUpdate)
 	end
 end
 
-local function getBuildingsNames(string)
-	local buildings = {}
-	for _, building in next, C_Garrison.GetBuildings() do
-		local _,name = C_Garrison.GetBuildingInfo(building.buildingID)
-		table.insert(buildings, #buildings+1, name)
-	end
-	if string then
-		return table.concat(buildings, ", ")
-	else
-		return buildings
-	end
+function f:GARRISON_MISSION_LIST_UPDATE()
+	--  UPDATE MISSION FRAME NOW
 end
 
-local function blacklistBuilding(buildingName)
-	local buildings = getBuildingsNames()
-
-	for _, currentBuildingName in next, buildings do
-		if string.lower(currentBuildingName) == buildingName then
-			LazyCommander_C.blacklist[buildingName] = not LazyCommander_C.blacklist[buildingName]
-			return true
-		end
-	end
-
-	return false
-	-- return false
+function f:ZONE_CHANGED_NEW_AREA()
+	showFrame(f)
 end
 
-SLASH_LAZYCOMMANDER1 = "/lazycom"
-SLASH_LAZYCOMMANDER2 = "/lazycommander"
-SlashCmdList["LAZYCOMMANDER"] = function(msg, editbox)
-	msg = string.lower(msg)
-	local Pos = string.find(msg,"%s+")
-	local Command
-	local SubCommand
-	if Pos ~= nil then
-		SubCommand = strtrim(string.sub(msg,Pos+1,string.len(msg))," ")
-		Command = strtrim(string.sub(msg,1,Pos)," ")
-	else
-		Command = msg
-		SubCommand = nil
-	end
+function f:PLAYER_ENTERING_WORLD()
+	local frame = CreateFrame("FRAME", "FooAddonFrame");
 
-	if Command == "lock" then
-		LazyCommander.Unlocked = not LazyCommander.Unlocked
-		unlockMainFrame(LazyCommander.Unlocked)
-		if LazyCommander.Unlocked == true then
-			print("LazyCommander unlocked!")
-		else
-			print("LazyCommander locked!")
-		end
-	elseif Command == "hide" then
-		LazyCommander.Shown = not LazyCommander.Shown
-		showMainFrame()
-		if LazyCommander.Shown == true then
-			print("LazyCommander shown. The window will appear whenever you are in your garrison.")
-		else
-			print("LazyCommander hidden. The window will not appear until you show it again. Type /lazycommander show to make it reappear.")
-		end
-	elseif Command == "filter" then
-		if not SubCommand then
-			print([[Blacklisting is done by typing "/Lazycom Filter Herb Garden"]])
-			print("Current Buildings:",getBuildingsNames(true))
-		elseif SubCommand then
-			if blacklistBuilding(SubCommand) then
-				print("Done:", SubCommand)
-			else
-				print("Error:",SubCommand,"is not a known building.")
-				print("Current Buildings:",getBuildingsNames(true))
-			end
-		end
-	else
-		print("--LazyCommander Commands--")
-		print("/Lazycom lock - Locks or Unlocks the window in place")
-		print("/Lazycom hide - Shows or Hides the window when in garrison")
-		print("/Lazycom filter - Filter out a building")
-	end
+	LazyCommander = false
+	LazyCommander_C = false
+
+	globalVarsInit()
+	createFrame()
 end
-
--- GARRISON_BUILDING_ACTIVATED(plotID, buildingID) - fires on finalizing a building
--- GARRISON_BUILDING_UPDATED(buildingID, plotID)

@@ -3,6 +3,5 @@
 ## Notes: For the truely lazy commander, adding some quality of life changes for your garrison
 ## Author: Kanro
 ## Version: 0.1
-## SavedVariables: LazyCommanderData, LazyCommander
-## SavedVariablesPerCharacter: LazyCommander_C
+## SavedVariables: LazyCommander
 LazyCommander.lua
