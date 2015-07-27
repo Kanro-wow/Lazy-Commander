@@ -1,12 +1,6 @@
 RaidFrame:UnregisterEvent('UPDATE_INSTANCE_INFO')
 RaidInfoScrollFrame:SetScript('OnShow', nil)
 RaidInfoFrame:SetScript('OnShow', function(self) self:Hide() end)
-RaidFrameRaidInfoButton:SetScript('OnEnter', function(self)
-    self:Disable()
-    -- self:SetMotionScriptsWhileDisabled(true)
-    print('|cffff0000WARNING:|r The raid info button is disabled until Blizzard fixes their shit, for your safety.')
-end)
-
 
 
 local f = CreateFrame("FRAME", "LazyCommander_Frame", UIParent)
@@ -32,7 +26,7 @@ local function globalVarsInit()
 			unlocked = true,
 			show = true,
 			autoWorkorder = true,
-			ignoreAutoWorkorderOnShift = true,
+			ignoreOnShift = true,
 			hideInCombat = true,
 			hideOnDead = true,
 			onlyInGarrison = true,
@@ -261,7 +255,7 @@ local function createFrame()
 end
 
 function f:SHIPMENT_CRAFTER_OPENED()
-	if LazyCommander.ignoreAutoWorkorderOnShift ~= IsShiftKeyDown or (LazyCommander.ignoreAutoWorkorderOnShift == false and IsShiftKeyDown == false) then
+	if LazyCommander.ignoreOnShift ~= IsShiftKeyDown or (LazyCommander.ignoreOnShift == false and IsShiftKeyDown == false) then
 		f:RegisterEvent("SHIPMENT_UPDATE")
 		f:RegisterEvent("SHIPMENT_CRAFTER_INFO")
 	end
@@ -278,7 +272,8 @@ function f:SHIPMENT_CRAFTER_INFO(progress,total,plotID)
 	print(progress,total,plotID)
 	f:UnregisterEvent("SHIPMENT_CRAFTER_INFO")
 	f:RegisterEvent("LOOT_CLOSED")
-	requestWorkorder(total - progress)
+	local request = total-progress
+	requestWorkorder(request)
 
 end
 
